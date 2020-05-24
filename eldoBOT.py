@@ -20,6 +20,9 @@ import operator
 import pickle
 import cv2
 
+# Get configurations
+configurations = pickle.load(open("configurations.pkl", "rb" ))
+
 # Get some secrets from the magic Pickle
 keys = pickle.load(open("keys.pkl", "rb" ))
 
@@ -61,6 +64,23 @@ async def get_video_frame(attachment):
     return image_to_search
 
 async def find_name(msg):
+    # Check if we can send names to this channel
+    can_i_send_message = False
+    if "name_channel" in configurations["guilds"][msg.guild.id]["commands"]:
+        if configurations["guilds"][msg.guild.id]["commands"]["name_channel_set"] == True:
+            if msg.channel.id in configurations["guilds"][msg.guild.id]["commands"]["name_channel"]:
+                can_i_send_message = True
+            else:
+                can_i_send_message = False
+        else: # If the user didn't configured the allowed channels, we will just send the command
+            can_i_send_message = True
+    else:
+        can_i_send_message = True
+
+    # If the user sent the command in a channel where we don't allow it
+    if can_i_send_message == False:
+        return configurations["guilds"][msg.guild.id]["commands"]["name_ignore_message"]+"TEMP_MESSAGE"
+
     if len(msg.attachments)==0:
         return("❌")
     
@@ -169,12 +189,20 @@ async def find_name(msg):
             return message_with_source
         else:
             return "❌"
+@client.event
+async def on_guild_join(guild):
+    msg_to_send = "Fuimos invitados a un nuevo servidor!! Nombre:", guild.name
+    print(msg_to_send)
+    await channel_logs.send(msg_to_send)
+    if not guild.id in configurations["guilds"]:
+        configurations["guilds"][guild.id] = {"general":{},"commands":{"name_channel_set":False,"name_channel":[],"name_ignore_message":""},"others":{}}
+        with open("configurations.pkl", 'wb') as pickle_file:
+            pickle.dump(configurations,pickle_file)
 
 @client.event
 async def on_ready():
     global channel_logs
     print(f'{client.user.name} has connected to Discord!')
-
     # Get channel for logs:
     channel_logs = await client.fetch_channel(708648213774598164)
 
@@ -185,7 +213,9 @@ async def on_raw_reaction_add(payload):
         msg = await channel.fetch_message(payload.message_id)
         async with channel.typing():
             msg_to_send = await find_name(msg)
-        if(msg_to_send != "❌"):
+        if msg_to_send.find("TEMP_MESSAGE")!=-1:
+            await msg.channel.send(content=msg_to_send.replace("TEMP_MESSAGE",""), delete_after=60)
+        elif(msg_to_send != "❌"):
             #img_to_send = await msg.attachments[0].read()
             #img_to_send = discord.File(img_to_send,filename="sauce.jpg")
             await msg.channel.send(msg_to_send)#,file=img_to_send)
@@ -224,6 +254,39 @@ async def on_message(msg):
 
         await msg.channel.send(help_text)
 
+    if msg.content.lower().find("e!conf")==0:
+        if msg.author.permissions_in(msg.channel).manage_channels:
+            if msg.content.find("e!conf name ignore_message ")==0:
+                name_ignore_message = msg.content.replace("e!conf name ignore_message ","")
+                configurations["guilds"][msg.guild.id]["commands"]["name_ignore_message"] = name_ignore_message
+                with open("configurations.pkl", 'wb') as pickle_file:
+                    pickle.dump(configurations,pickle_file)
+                await msg.channel.send(content="Mensaje cambiado correctamente",delete_after=3)
+        else:
+            await msg.channel.send(content="No tienes permisos suficientes para hacer esto",delete_after=3)
+        
+    if msg.content.lower().find("e!permitir name")==0:
+        if msg.author.permissions_in(msg.channel).manage_channels:
+            configurations["guilds"][msg.guild.id]["commands"]["name_channel_set"] = True
+            configurations["guilds"][msg.guild.id]["commands"]["name_channel"].append(msg.channel.id)
+            with open("configurations.pkl", 'wb') as pickle_file:
+                pickle.dump(configurations,pickle_file)
+            await msg.channel.send(content="Ahora se podrá usar el comando **name** en este canal",delete_after=3)
+        else:
+            await msg.channel.send(content="No tienes permisos suficientes para hacer esto",delete_after=3)
+
+    if msg.content.lower().find("e!bloquear name")==0:
+        if msg.author.permissions_in(msg.channel).manage_channels:
+            if msg.channel.id in configurations["guilds"][msg.guild.id]["commands"]["name_channel"]:
+                del(configurations["guilds"][msg.guild.id]["commands"]["name_channel"][msg.channel.id])
+                with open("configurations.pkl", 'wb') as pickle_file:
+                    pickle.dump(configurations,pickle_file)
+            await msg.channel.send(content="Ya no se podrá usar el comando **name** en este canal",delete_after=3)
+        else:
+            await msg.channel.send(content="No tienes permisos suficientes para hacer esto",delete_after=3)
+    
+
+
     if msg.content.lower().find("e!say")!=-1:# or msg.content.lower().find("e!di")!=-1:
         text_to_say = msg.clean_content
         text_to_say = text_to_say.replace("e!say","",1)
@@ -237,6 +300,12 @@ async def on_message(msg):
 
         await msg.channel.send(embed = embed_to_send)
         await msg.delete()
+    
+    if msg.content.lower().find("e!guilds")!=-1:
+        msg_to_say = ""
+        for guild in client.guilds:
+            msg_to_say+=guild.name + "\n"
+        await msg.channel.send(msg_to_say)
     
     if msg.content.lower().find("spoiler")!=-1:
         if len(msg.attachments)>0:
@@ -336,7 +405,9 @@ async def on_message(msg):
     if (msg.content.lower().find("name") != -1 or msg.content.lower().find("nombre") != -1) and len(msg.attachments)!=0:
         async with msg.channel.typing():
             msg_to_send = await find_name(msg)
-        if(msg_to_send != "❌"):
+        if msg_to_send.find("TEMP_MESSAGE")!=-1:
+            await msg.channel.send(content=msg_to_send.replace("TEMP_MESSAGE",""), delete_after=60)
+        elif(msg_to_send != "❌"):
             await msg.channel.send(msg_to_send)
         else:
             delete_this = await msg.channel.send("Nope")
