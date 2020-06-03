@@ -230,53 +230,8 @@ async def on_message(msg):
     # Ignore messages comming from a bot
     if msg.author.bot:
         return
-    
-    msg_received = msg.content.lower()
-    if msg_received[:2]==activator:
-        msg_command = msg_received[2:]
-        if msg_command.find("spoiler") != -1:
-            command_spoiler()
-        elif msg_command.find("name") != -1 or msg_command.find("nombre") != -1:
-            command_name()
-        elif msg_command.find("emoji_stats")==0 and msg.author.display_name=="Eldoprano":
-            command_emoji_stats()
-        elif msg_command.find("help") == 0 or msg_command.find("ayuda") == 0:
-            command_help()
-        elif msg_command.find("conf") == 0 or msg_command.find("configurar") == 0:
-            command_config()
-        elif msg_command.find("permitir name") == 0 or msg_command.find("permitir nombre") == 0:
-            command_config_permName()
-        elif msg_command.find("bloquear name") == 0 or msg_command.find("bloquear nombre") == 0:
-            command_config_bloqName()
-        elif msg_command.find("say") == 0 or msg_command.find("di") == 0:
-            command_say()
-        elif msg_command.find("guilds") == 0 or msg_command.find("servidores") == 0:
-            command_guilds()
-        elif msg_command.find("ping") == 0 or msg_command.find("test") == 0:
-            command_ping()
-        elif msg_command.find("boost list"):
-            command_boost_list()
-        elif msg_command.find("bot") == 0:
-            command_bot()
-        elif msg_command.find("reset") == 0 or msg_command.find("resetear") == 0:
-            command_anon_reset()
-        elif msg_command.find("apodo") == 0 or msg_command.find("nick") == 0:
-            command_anon_apodo()
-        elif msg_command.find("foto") == 0 or msg_command.find("photo") == 0:
-            command_anon_photo()
-        elif msg_command.find("e!anon ")==0 and (msg.channel.id==706925747792511056 or msg.guild.id==646799198167105539 or msg.author.permissions_in(msg.channel).manage_messages):
-            command_anon()
-        elif msg_command.find("say") == 0 or msg_command.find("test") == 0:
-            command_ping()
-        elif msg_command.find("di como"):
-            command_say_like()
-        else:
-            save_emojis()
-        
-        
 
-
-    def command_help():
+    async def command_help():
         help_text = "**Comandos de EldoBOT:**\n"
         help_text += "**{}say [mensaje]**:\n".format(activator) # 'format(activator)"' Puts the "e!" on the help
         help_text += "Has que el bot diga algo.\n"
@@ -298,7 +253,7 @@ async def on_message(msg):
         help_text += "El bot devuelve una lista con los usuarios que boostean el servidor.\n"
         await msg.channel.send(help_text)
     
-    def command_config():
+    async def command_config():
         if msg.author.permissions_in(msg.channel).manage_channels:
             if msg.content.find("e!conf name ignore_message ")==0:
                 name_ignore_message = msg.content.replace("e!conf name ignore_message ","")
@@ -309,7 +264,7 @@ async def on_message(msg):
         else:
             await msg.channel.send(content="No tienes permisos suficientes para hacer esto",delete_after=3)
         
-    def command_config_permName():
+    async def command_config_permName():
         if msg.author.permissions_in(msg.channel).manage_channels:
             configurations["guilds"][msg.guild.id]["commands"]["name_channel_set"] = True
             configurations["guilds"][msg.guild.id]["commands"]["name_channel"].append(msg.channel.id)
@@ -319,7 +274,7 @@ async def on_message(msg):
         else:
             await msg.channel.send(content="No tienes permisos suficientes para hacer esto",delete_after=3)
 
-    def command_config_bloqName():
+    async def command_config_bloqName():
         if msg.author.permissions_in(msg.channel).manage_channels:
             if msg.channel.id in configurations["guilds"][msg.guild.id]["commands"]["name_channel"]:
                 del(configurations["guilds"][msg.guild.id]["commands"]["name_channel"][msg.channel.id])
@@ -329,7 +284,7 @@ async def on_message(msg):
         else:
             await msg.channel.send(content="No tienes permisos suficientes para hacer esto",delete_after=3)
 
-    def command_say():
+    async def command_say():
         text_to_say = msg.clean_content
         text_to_say = text_to_say.replace("e!say","",1)
         text_to_say = text_to_say.replace("e!di","",1)
@@ -343,13 +298,13 @@ async def on_message(msg):
         await msg.channel.send(embed = embed_to_send)
         await msg.delete()
     
-    def command_guilds():
+    async def command_guilds():
         msg_to_say = ""
         for guild in client.guilds:
             msg_to_say+=guild.name + "\n"
         await msg.channel.send(msg_to_say)
     
-    def command_spoiler():
+    async def command_spoiler():
         if len(msg.attachments)>0:
             tmp_list_images=[]
             for attachment in msg.attachments:
@@ -370,10 +325,10 @@ async def on_message(msg):
             await msg.delete()
     
 
-    def command_ping():
+    async def command_ping():
         await msg.channel.send("pong")
 
-    def command_emoji_stats():
+    async def command_emoji_stats():
         if msg.content == ("e!emoji_stats yo"):
             user_to_search = msg.author.id
         elif msg.content.find("e!emoji_stats id: ")==0:
@@ -414,7 +369,7 @@ async def on_message(msg):
                     mensaje_a_mostrar += "<:" + emote.name + ":" + str(emote.id) + "> -> " + str(times_repeated) + " | "
         await msg.channel.send(mensaje_a_mostrar)
 
-        def searchAll():
+        async def searchAll():
             print("Looking for stats data...")
             mycursor.execute("SELECT emoji FROM emoji_log WHERE guildID='624079272155414528';")
             tmp_list_of_emojis = mycursor.fetchall()
@@ -442,7 +397,7 @@ async def on_message(msg):
                         mensaje_a_mostrar += "<:" + emote.name + ":" + str(emote.id) + "> -> " + str(times_repeated) + " | "
             await msg.channel.send(mensaje_a_mostrar)
 
-    def command_name():
+    async def command_name():
         if len(msg.attachments)!=0:
             async with msg.channel.typing():
                 msg_to_send = await find_name(msg)
@@ -455,7 +410,7 @@ async def on_message(msg):
                 await delete_this.delete()
                 await msg.add_reaction("❌")
         
-    def command_boost_list():
+    async def command_boost_list():
         list_of_boost_users = msg.guild.premium_subscribers
         msg_to_send = ""
         if len(list_of_boost_users) == 0:
@@ -464,7 +419,7 @@ async def on_message(msg):
             msg_to_send += "- " + str(user) + "\n"
         await msg.channel.send(msg_to_send)
 
-    def command_bot():
+    async def command_bot():
         msg_to_say = msg.content
         tmp_channel = msg.channel
         tmp_author = msg.author.display_name
@@ -479,14 +434,14 @@ async def on_message(msg):
         # Delete webhook
         await webhook_discord.delete()
 
-    def command_anon_reset():
+    async def command_anon_reset():
         tmp_user_id = msg.author.id
         if tmp_user_id in anon_list:
             del anon_list[tmp_user_id]
         await msg.channel.send(content="Tu perfil anónimo fué reseteado correctamente",delete_after=2.5)
         await msg.delete()
         
-    def command_anon_apodo():
+    async def command_anon_apodo():
         tmp_msg = msg.content
         tmp_channel = msg.channel
         tmp_user_id = msg.author.id
@@ -507,7 +462,7 @@ async def on_message(msg):
             pickle.dump(anon_list,pickle_file)
         
 
-    def command_anon_photo():
+    async def command_anon_photo():
         tmp_channel = msg.channel
         tmp_user_id = msg.author.id
         tmp_guild_id = msg.guild.id
@@ -532,7 +487,7 @@ async def on_message(msg):
         with open("anon_list.pkl", 'wb') as pickle_file:
             pickle.dump(anon_list,pickle_file)
 
-    def command_anon():
+    async def command_anon():
         msg_to_say = msg.content
         tmp_channel = msg.channel
         tmp_user_id = msg.author.id
@@ -554,7 +509,7 @@ async def on_message(msg):
         await webhook_discord.delete()
         print("Confesión hecha!")
 
-    def command_say_like():
+    async def command_say_like():
         msg_to_say = msg.content
         tmp_content = msg.content
         tmp_channel = msg.channel
@@ -597,7 +552,7 @@ async def on_message(msg):
             print("User: "+user_ID_to_imitate+" not found")
 
     # This saves in a Databases what emojis where used by wich user and when, so we can do statistics later on
-    def save_emojis():
+    async def save_emojis():
         if re.findall('<:(.*?)>', msg.content, re.DOTALL) or len("".join(c for c in msg.content if c in emoji.UNICODE_EMOJI))>0:
             raw_emojis_in_msg = re.findall('<:(.*?)>', msg.content, re.DOTALL)
             emojis_IDs = []
@@ -661,5 +616,48 @@ async def on_message(msg):
             mySQL_query = "INSERT INTO emoji_log (emoji, user, guildID, channelID) VALUES (%s, %s, %s, %s) "
             mycursor.executemany(mySQL_query,records_to_insert)
             mydb.commit()
+
+    msg_received = msg.content.lower()
+    await save_emojis()
+
+    if msg.content.find("spoiler") != -1:
+        await command_spoiler()
+    elif msg.content.find("name") != -1 or msg_command.find("nombre") != -1:
+        await command_name()
+
+    if msg_received[:2]==activator:
+        msg_command = msg_received[2:]
+        if  msg_command.find("emoji_stats")==0 and msg.author.display_name=="Eldoprano":
+            await command_emoji_stats()
+        elif msg_command.find("help") == 0 or msg_command.find("ayuda") == 0:
+            await command_help()
+        elif msg_command.find("conf") == 0 or msg_command.find("configurar") == 0:
+            await command_config()
+        elif msg_command.find("permitir name") == 0 or msg_command.find("permitir nombre") == 0:
+            await command_config_permName()
+        elif msg_command.find("bloquear name") == 0 or msg_command.find("bloquear nombre") == 0:
+            await command_config_bloqName()
+        elif msg_command.find("say") == 0 or msg_command.find("di") == 0:
+            await command_say()
+        elif msg_command.find("guilds") == 0 or msg_command.find("servidores") == 0:
+            await command_guilds()
+        elif msg_command.find("ping") == 0 or msg_command.find("test") == 0:
+            await command_ping()
+        elif msg_command.find("boost list")==0:
+            await command_boost_list()
+        elif msg_command.find("bot") == 0:
+            await command_bot()
+        elif msg_command.find("reset") == 0 or msg_command.find("resetear") == 0:
+            await command_anon_reset()
+        elif msg_command.find("apodo") == 0 or msg_command.find("nick") == 0:
+            await command_anon_apodo()
+        elif msg_command.find("foto") == 0 or msg_command.find("photo") == 0:
+            await command_anon_photo()
+        elif msg_command.find("e!anon ")==0 and (msg.channel.id==706925747792511056 or msg.guild.id==646799198167105539 or msg.author.permissions_in(msg.channel).manage_messages):
+            await command_anon()
+        elif msg_command.find("say") == 0 or msg_command.find("test") == 0:
+            await command_ping()
+        elif msg_command.find("di como"):
+            await command_say_like()
 
 client.run(Discord_TOKEN)
