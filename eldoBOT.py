@@ -22,6 +22,7 @@ import cv2
 
 # Get configurations
 configurations = pickle.load(open("configurations.pkl", "rb" ))
+activator = "e!"
 
 # Get some secrets from the magic Pickle
 keys = pickle.load(open("keys.pkl", "rb" ))
@@ -230,31 +231,74 @@ async def on_message(msg):
     if msg.author.bot:
         return
     
-    if msg.content.lower()=="e!help" or msg.content.lower()=="e!ayuda":
+    msg_received = msg.content.lower()
+    if msg_received[:2]==activator:
+        msg_command = msg_received[2:]
+        if msg_command.find("spoiler") != -1:
+            command_spoiler()
+        elif msg_command.find("name") != -1 or msg_command.find("nombre") != -1:
+            command_name()
+        elif msg_command.find("emoji_stats")==0 and msg.author.display_name=="Eldoprano":
+            command_emoji_stats()
+        elif msg_command.find("help") == 0 or msg_command.find("ayuda") == 0:
+            command_help()
+        elif msg_command.find("conf") == 0 or msg_command.find("configurar") == 0:
+            command_config()
+        elif msg_command.find("permitir name") == 0 or msg_command.find("permitir nombre") == 0:
+            command_config_permName()
+        elif msg_command.find("bloquear name") == 0 or msg_command.find("bloquear nombre") == 0:
+            command_config_bloqName()
+        elif msg_command.find("say") == 0 or msg_command.find("di") == 0:
+            command_say()
+        elif msg_command.find("guilds") == 0 or msg_command.find("servidores") == 0:
+            command_guilds()
+        elif msg_command.find("ping") == 0 or msg_command.find("test") == 0:
+            command_ping()
+        elif msg_command.find("boost list"):
+            command_boost_list()
+        elif msg_command.find("bot") == 0:
+            command_bot()
+        elif msg_command.find("reset") == 0 or msg_command.find("resetear") == 0:
+            command_anon_reset()
+        elif msg_command.find("apodo") == 0 or msg_command.find("nick") == 0:
+            command_anon_apodo()
+        elif msg_command.find("foto") == 0 or msg_command.find("photo") == 0:
+            command_anon_photo()
+        elif msg_command.find("e!anon ")==0 and (msg.channel.id==706925747792511056 or msg.guild.id==646799198167105539 or msg.author.permissions_in(msg.channel).manage_messages):
+            command_anon()
+        elif msg_command.find("say") == 0 or msg_command.find("test") == 0:
+            command_ping()
+        elif msg_command.find("di como"):
+            command_say_like()
+        else:
+            save_emojis()
+        
+        
+
+
+    def command_help():
         help_text = "**Comandos de EldoBOT:**\n"
-        help_text += "**e!say [mensaje]**:\n"
+        help_text += "**{}say [mensaje]**:\n".format(activator) # 'format(activator)"' Puts the "e!" on the help
         help_text += "Has que el bot diga algo.\n"
-        help_text += "**e!di como [@usuario] [mensaje]**:\n"
+        help_text += "**{}di como [@usuario] [mensaje]**:\n".format(activator)
         help_text += "El bot imitará al @usuario y enviará lo escrito en *mensaje*.\n"
-        help_text += "**e!bot [mensaje]**:\n"
+        help_text += "**{}bot [mensaje]**:\n".format(activator)
         help_text += "El bot te imitará y enviará lo escrito en *mensaje*.\n"
-        help_text += "**e!anon [confesión]**:\n"
+        help_text += "**{}anon [confesión]**:\n".format(activator)
         help_text += "Este comando es para enviar una confesión en el canal de confesiónes.\n"
         help_text += "**name o nombre**:\n"
         help_text += "El bot buscará el nombre de la imagen adjunta al mensaje.\n"
         help_text += "**spoiler**:\n"
         help_text += "El bot imitará al usuario y reenviará las imagenes como spoilers.\n"
-        help_text += "**e!test_stats**:\n"
+        help_text += "**{}test_stats**:\n".format(activator)
         help_text += "El bot mostrará el uso de los emojis en el servidor. *En construcción*\n"
-        help_text += "**e!emoji_stats [@usuario]**:\n"
+        help_text += "**{}emoji_stats [@usuario]**:\n".format(activator)
         help_text += "El bot mostrará el uso de emojis del usuario. *En construcción*\n"        
-        help_text += "**e!boost list**:\n"
+        help_text += "**{}boost list**:\n".format(activator)
         help_text += "El bot devuelve una lista con los usuarios que boostean el servidor.\n"
-        
-
         await msg.channel.send(help_text)
-
-    if msg.content.lower().find("e!conf")==0:
+    
+    def command_config():
         if msg.author.permissions_in(msg.channel).manage_channels:
             if msg.content.find("e!conf name ignore_message ")==0:
                 name_ignore_message = msg.content.replace("e!conf name ignore_message ","")
@@ -265,7 +309,7 @@ async def on_message(msg):
         else:
             await msg.channel.send(content="No tienes permisos suficientes para hacer esto",delete_after=3)
         
-    if msg.content.lower().find("e!permitir name")==0:
+    def command_config_permName():
         if msg.author.permissions_in(msg.channel).manage_channels:
             configurations["guilds"][msg.guild.id]["commands"]["name_channel_set"] = True
             configurations["guilds"][msg.guild.id]["commands"]["name_channel"].append(msg.channel.id)
@@ -275,7 +319,7 @@ async def on_message(msg):
         else:
             await msg.channel.send(content="No tienes permisos suficientes para hacer esto",delete_after=3)
 
-    if msg.content.lower().find("e!bloquear name")==0:
+    def command_config_bloqName():
         if msg.author.permissions_in(msg.channel).manage_channels:
             if msg.channel.id in configurations["guilds"][msg.guild.id]["commands"]["name_channel"]:
                 del(configurations["guilds"][msg.guild.id]["commands"]["name_channel"][msg.channel.id])
@@ -284,10 +328,8 @@ async def on_message(msg):
             await msg.channel.send(content="Ya no se podrá usar el comando **name** en este canal",delete_after=3)
         else:
             await msg.channel.send(content="No tienes permisos suficientes para hacer esto",delete_after=3)
-    
 
-
-    if msg.content.lower().find("e!say")!=-1:# or msg.content.lower().find("e!di")!=-1:
+    def command_say():
         text_to_say = msg.clean_content
         text_to_say = text_to_say.replace("e!say","",1)
         text_to_say = text_to_say.replace("e!di","",1)
@@ -301,13 +343,13 @@ async def on_message(msg):
         await msg.channel.send(embed = embed_to_send)
         await msg.delete()
     
-    if msg.content.lower().find("e!guilds")!=-1:
+    def command_guilds():
         msg_to_say = ""
         for guild in client.guilds:
             msg_to_say+=guild.name + "\n"
         await msg.channel.send(msg_to_say)
     
-    if msg.content.lower().find("spoiler")!=-1:
+    def command_spoiler():
         if len(msg.attachments)>0:
             tmp_list_images=[]
             for attachment in msg.attachments:
@@ -326,19 +368,21 @@ async def on_message(msg):
             # Delete webhook
             await webhook_discord.delete()
             await msg.delete()
+    
 
-            
-
-    if msg.content == "eldo!ping":
+    def command_ping():
         await msg.channel.send("pong")
 
-    if msg.content.find("e!emoji_stats")==0 and msg.author.display_name=="Eldoprano":
+    def command_emoji_stats():
         if msg.content == ("e!emoji_stats yo"):
             user_to_search = msg.author.id
         elif msg.content.find("e!emoji_stats id: ")==0:
             user_to_search = int(msg.content.replace("e!emoji_stats id: ",""))
-        else:
+        elif len(msg.raw_mentions)>0:
             user_to_search = msg.raw_mentions[0]
+        else:
+            searchAll()
+            return
 
         mySQL_call = ("SELECT emoji.emoji_id, emoji.call_name ")
         mySQL_call += ("FROM HelloWorld.emoji_log ")
@@ -370,51 +414,48 @@ async def on_message(msg):
                     mensaje_a_mostrar += "<:" + emote.name + ":" + str(emote.id) + "> -> " + str(times_repeated) + " | "
         await msg.channel.send(mensaje_a_mostrar)
 
+        def searchAll():
+            print("Looking for stats data...")
+            mycursor.execute("SELECT emoji FROM emoji_log WHERE guildID='624079272155414528';")
+            tmp_list_of_emojis = mycursor.fetchall()
+            list_of_emojis=[]
+            for element in tmp_list_of_emojis:
+                list_of_emojis.append(element[0])
+            dic_with_repetitions = Counter(list_of_emojis)
+            mensaje_a_mostrar = "Aquí una lista (Función en construcción):\n"
 
-    if msg.content.find("e!test")!=-1:
-        print(msg.content)
+            # Sort Dictionary and save in Tuples
+            sorted_list_emojis = sorted(dic_with_repetitions.items(), key=operator.itemgetter(1), reverse=True)
+            for emoji_id, times_repeated in sorted_list_emojis:
+                # Normie Emoticons😂 <- Puajj
+                if len(emoji_id) < 18:
+                    #print(mensaje_a_mostrar)
+                    if(len(mensaje_a_mostrar)>=1800):
+                        await msg.channel.send(mensaje_a_mostrar)
+                        mensaje_a_mostrar = ""
+                    mensaje_a_mostrar += chr(int(emoji_id)) + " -> " + str(times_repeated) + " | "
 
-    if msg.content == "e!test_stats":
-        print("Looking for stats data...")
-        mycursor.execute("SELECT emoji FROM emoji_log WHERE guildID='624079272155414528';")
-        tmp_list_of_emojis = mycursor.fetchall()
-        list_of_emojis=[]
-        for element in tmp_list_of_emojis:
-            list_of_emojis.append(element[0])
-        dic_with_repetitions = Counter(list_of_emojis)
-        mensaje_a_mostrar = "Aquí una lista (Función en construcción):\n"
+                # Discord Emotes :doge: <- Nice :3
+                else:
+                    emote = client.get_emoji(int(emoji_id))
+                    if(emote!=None):
+                        mensaje_a_mostrar += "<:" + emote.name + ":" + str(emote.id) + "> -> " + str(times_repeated) + " | "
+            await msg.channel.send(mensaje_a_mostrar)
 
-        # Sort Dictionary and save in Tuples
-        sorted_list_emojis = sorted(dic_with_repetitions.items(), key=operator.itemgetter(1), reverse=True)
-        for emoji_id, times_repeated in sorted_list_emojis:
-            # Normie Emoticons😂 <- Puajj
-            if len(emoji_id) < 18:
-                #print(mensaje_a_mostrar)
-                if(len(mensaje_a_mostrar)>=1800):
-                    await msg.channel.send(mensaje_a_mostrar)
-                    mensaje_a_mostrar = ""
-                mensaje_a_mostrar += chr(int(emoji_id)) + " -> " + str(times_repeated) + " | "
-
-            # Discord Emotes :doge: <- Nice :3
+    def command_name():
+        if len(msg.attachments)!=0:
+            async with msg.channel.typing():
+                msg_to_send = await find_name(msg)
+            if msg_to_send.find("TEMP_MESSAGE")!=-1:
+                await msg.channel.send(content=msg_to_send.replace("TEMP_MESSAGE",""), delete_after=60)
+            elif(msg_to_send != "❌"):
+                await msg.channel.send(msg_to_send)
             else:
-                emote = client.get_emoji(int(emoji_id))
-                if(emote!=None):
-                    mensaje_a_mostrar += "<:" + emote.name + ":" + str(emote.id) + "> -> " + str(times_repeated) + " | "
-        await msg.channel.send(mensaje_a_mostrar)
-
-    if (msg.content.lower().find("name") != -1 or msg.content.lower().find("nombre") != -1) and len(msg.attachments)!=0:
-        async with msg.channel.typing():
-            msg_to_send = await find_name(msg)
-        if msg_to_send.find("TEMP_MESSAGE")!=-1:
-            await msg.channel.send(content=msg_to_send.replace("TEMP_MESSAGE",""), delete_after=60)
-        elif(msg_to_send != "❌"):
-            await msg.channel.send(msg_to_send)
-        else:
-            delete_this = await msg.channel.send("Nope")
-            await delete_this.delete()
-            await msg.add_reaction("❌")
+                delete_this = await msg.channel.send("Nope")
+                await delete_this.delete()
+                await msg.add_reaction("❌")
         
-    if(msg.content == "e!boost list"):
+    def command_boost_list():
         list_of_boost_users = msg.guild.premium_subscribers
         msg_to_send = ""
         if len(list_of_boost_users) == 0:
@@ -423,7 +464,7 @@ async def on_message(msg):
             msg_to_send += "- " + str(user) + "\n"
         await msg.channel.send(msg_to_send)
 
-    if (msg.content.lower().find("e!bot ")==0):
+    def command_bot():
         msg_to_say = msg.content
         tmp_channel = msg.channel
         tmp_author = msg.author.display_name
@@ -438,14 +479,14 @@ async def on_message(msg):
         # Delete webhook
         await webhook_discord.delete()
 
-    if (msg.content.lower().find("e!reset")==0): 
+    def command_anon_reset():
         tmp_user_id = msg.author.id
         if tmp_user_id in anon_list:
             del anon_list[tmp_user_id]
         await msg.channel.send(content="Tu perfil anónimo fué reseteado correctamente",delete_after=2.5)
         await msg.delete()
         
-    if (msg.content.lower().find("e!apodo ")==0):
+    def command_anon_apodo():
         tmp_msg = msg.content
         tmp_channel = msg.channel
         tmp_user_id = msg.author.id
@@ -466,7 +507,7 @@ async def on_message(msg):
             pickle.dump(anon_list,pickle_file)
         
 
-    if (msg.content.lower().find("e!foto")==0):
+    def command_anon_photo():
         tmp_channel = msg.channel
         tmp_user_id = msg.author.id
         tmp_guild_id = msg.guild.id
@@ -491,8 +532,7 @@ async def on_message(msg):
         with open("anon_list.pkl", 'wb') as pickle_file:
             pickle.dump(anon_list,pickle_file)
 
-                                                                # ID del canal Confesiónes 
-    if msg.content.lower().find("e!anon ")==0 and (msg.channel.id==706925747792511056 or msg.guild.id==646799198167105539 or msg.author.permissions_in(msg.channel).manage_messages):
+    def command_anon():
         msg_to_say = msg.content
         tmp_channel = msg.channel
         tmp_user_id = msg.author.id
@@ -514,7 +554,7 @@ async def on_message(msg):
         await webhook_discord.delete()
         print("Confesión hecha!")
 
-    if (msg.content.lower().find("e!di como")==0):
+    def command_say_like():
         msg_to_say = msg.content
         tmp_content = msg.content
         tmp_channel = msg.channel
@@ -557,68 +597,69 @@ async def on_message(msg):
             print("User: "+user_ID_to_imitate+" not found")
 
     # This saves in a Databases what emojis where used by wich user and when, so we can do statistics later on
-    if re.findall('<:(.*?)>', msg.content, re.DOTALL) or len("".join(c for c in msg.content if c in emoji.UNICODE_EMOJI))>0:
-        raw_emojis_in_msg = re.findall('<:(.*?)>', msg.content, re.DOTALL)
-        emojis_IDs = []
-        emojis_call_names = []
-        emojis_image_URL = []
-        emojis_to_count = []
-        mycursor.execute("SELECT emoji_id FROM emoji;")
-        tmp_list_of_existing_IDs = mycursor.fetchall()
-        list_of_existing_IDs=[]
-        for element in tmp_list_of_existing_IDs:
-            list_of_existing_IDs.append(element[0])
+    def save_emojis():
+        if re.findall('<:(.*?)>', msg.content, re.DOTALL) or len("".join(c for c in msg.content if c in emoji.UNICODE_EMOJI))>0:
+            raw_emojis_in_msg = re.findall('<:(.*?)>', msg.content, re.DOTALL)
+            emojis_IDs = []
+            emojis_call_names = []
+            emojis_image_URL = []
+            emojis_to_count = []
+            mycursor.execute("SELECT emoji_id FROM emoji;")
+            tmp_list_of_existing_IDs = mycursor.fetchall()
+            list_of_existing_IDs=[]
+            for element in tmp_list_of_existing_IDs:
+                list_of_existing_IDs.append(element[0])
 
-        # Creating a list of he emojis on the message, and saving information 
-        # about the ones that we are seeing for the first time
-        for raw_emoji in raw_emojis_in_msg:
-            temp_emojiID = raw_emoji[raw_emoji.find(":")+1:]
-            emojis_to_count.append(str(temp_emojiID))
-            if not (temp_emojiID in list_of_existing_IDs or temp_emojiID in emojis_IDs):
-                emojis_call_names.append(raw_emoji[:raw_emoji.find(":")])
-                emojis_IDs.append(temp_emojiID)
-                temp_emoji = client.get_emoji(int(emojis_IDs[-1]))  
-                if(temp_emoji==None):
-                    print(emojis_call_names[-1]+" emoji not found in the server. Adding it anyways")   
-                    emojis_image_URL.append("https://cdn.discordapp.com/emojis/"+str(emojis_IDs[-1])+".png")       
-                else:
-                    emojis_image_URL.append(str(temp_emoji.url))       
-        
-        # Add the normie UNICODE emojis to the list
-        normie_emoji_list= "".join(c for c in msg.content if c in emoji.UNICODE_EMOJI)
-        for normie_emoji in normie_emoji_list:
-            emojis_to_count.append(str(ord(normie_emoji)))
-            if not (str(ord(normie_emoji)) in list_of_existing_IDs or str(ord(normie_emoji)) in emojis_IDs):
-                emojis_call_names.append(unicodedata.name(normie_emoji))
-                emojis_IDs.append(str(ord(normie_emoji)))
-                emojis_image_URL.append("https://raw.githubusercontent.com/hfg-gmuend/openmoji/master/color/618x618/"+str(format(ord(normie_emoji),"x").upper())+".png")
-        
-        # Add new emojis to database
-        mySQL_query = "INSERT INTO emoji (emoji_id, call_name, image_URL) VALUES (%s, %s, %s) "
-        records_to_insert = tuple(zip(emojis_IDs, emojis_call_names, emojis_image_URL))
-        mycursor.executemany(mySQL_query,records_to_insert)
-        mydb.commit()
-        if(len(records_to_insert)>0):
-            print("We just added " + str(len(emojis_IDs))+" new emoji(s)! Here the list: "+str(emojis_call_names))
-
-        # Checking if the writer of the message is already on our Database
-        mycursor.execute("SELECT discordID FROM HelloWorld.user;")
-        tmp_list_of_existing_IDs = mycursor.fetchall()
-        list_of_existing_IDs=[]
-        for element in tmp_list_of_existing_IDs:
-            list_of_existing_IDs.append(element[0])
-        if not str(msg.author.id) in list_of_existing_IDs:
-            mySQL_query = "INSERT INTO user (discordID ,name, pictureURL) VALUES (%s, %s, %s) "
-            mycursor.execute(mySQL_query,(str(msg.author.id), unidecode(msg.author.name).replace("DROP","DRO_P").replace("drop","dro_p").replace(";",",").replace("*","+"), str(msg.author.avatar_url)))
+            # Creating a list of he emojis on the message, and saving information 
+            # about the ones that we are seeing for the first time
+            for raw_emoji in raw_emojis_in_msg:
+                temp_emojiID = raw_emoji[raw_emoji.find(":")+1:]
+                emojis_to_count.append(str(temp_emojiID))
+                if not (temp_emojiID in list_of_existing_IDs or temp_emojiID in emojis_IDs):
+                    emojis_call_names.append(raw_emoji[:raw_emoji.find(":")])
+                    emojis_IDs.append(temp_emojiID)
+                    temp_emoji = client.get_emoji(int(emojis_IDs[-1]))  
+                    if(temp_emoji==None):
+                        print(emojis_call_names[-1]+" emoji not found in the server. Adding it anyways")   
+                        emojis_image_URL.append("https://cdn.discordapp.com/emojis/"+str(emojis_IDs[-1])+".png")       
+                    else:
+                        emojis_image_URL.append(str(temp_emoji.url))       
+            
+            # Add the normie UNICODE emojis to the list
+            normie_emoji_list= "".join(c for c in msg.content if c in emoji.UNICODE_EMOJI)
+            for normie_emoji in normie_emoji_list:
+                emojis_to_count.append(str(ord(normie_emoji)))
+                if not (str(ord(normie_emoji)) in list_of_existing_IDs or str(ord(normie_emoji)) in emojis_IDs):
+                    emojis_call_names.append(unicodedata.name(normie_emoji))
+                    emojis_IDs.append(str(ord(normie_emoji)))
+                    emojis_image_URL.append("https://raw.githubusercontent.com/hfg-gmuend/openmoji/master/color/618x618/"+str(format(ord(normie_emoji),"x").upper())+".png")
+            
+            # Add new emojis to database
+            mySQL_query = "INSERT INTO emoji (emoji_id, call_name, image_URL) VALUES (%s, %s, %s) "
+            records_to_insert = tuple(zip(emojis_IDs, emojis_call_names, emojis_image_URL))
+            mycursor.executemany(mySQL_query,records_to_insert)
             mydb.commit()
+            if(len(records_to_insert)>0):
+                print("We just added " + str(len(emojis_IDs))+" new emoji(s)! Here the list: "+str(emojis_call_names))
 
-        # Put the emoji + user in the database
-        userID_list = [msg.author.id]*(len(emojis_to_count))
-        guildID_list = [msg.guild.id]*(len(emojis_to_count))
-        channelID_list = [msg.channel.id]*(len(emojis_to_count))
-        records_to_insert = tuple(zip(emojis_to_count,userID_list,guildID_list,channelID_list))
-        mySQL_query = "INSERT INTO emoji_log (emoji, user, guildID, channelID) VALUES (%s, %s, %s, %s) "
-        mycursor.executemany(mySQL_query,records_to_insert)
-        mydb.commit()
+            # Checking if the writer of the message is already on our Database
+            mycursor.execute("SELECT discordID FROM HelloWorld.user;")
+            tmp_list_of_existing_IDs = mycursor.fetchall()
+            list_of_existing_IDs=[]
+            for element in tmp_list_of_existing_IDs:
+                list_of_existing_IDs.append(element[0])
+            if not str(msg.author.id) in list_of_existing_IDs:
+                mySQL_query = "INSERT INTO user (discordID ,name, pictureURL) VALUES (%s, %s, %s) "
+                mycursor.execute(mySQL_query,(str(msg.author.id), unidecode(msg.author.name).replace("DROP","DRO_P").replace("drop","dro_p").replace(";",",").replace("*","+"), str(msg.author.avatar_url)))
+                mydb.commit()
+
+            # Put the emoji + user in the database
+            userID_list = [msg.author.id]*(len(emojis_to_count))
+            guildID_list = [msg.guild.id]*(len(emojis_to_count))
+            channelID_list = [msg.channel.id]*(len(emojis_to_count))
+            records_to_insert = tuple(zip(emojis_to_count,userID_list,guildID_list,channelID_list))
+            mySQL_query = "INSERT INTO emoji_log (emoji, user, guildID, channelID) VALUES (%s, %s, %s, %s) "
+            mycursor.executemany(mySQL_query,records_to_insert)
+            mydb.commit()
 
 client.run(Discord_TOKEN)
