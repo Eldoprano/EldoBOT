@@ -19,6 +19,7 @@ from collections import Counter
 import operator
 import pickle
 import cv2
+from tracemoe import TraceMoe
 
 # Get configurations
 configurations = pickle.load(open("configurations.pkl", "rb" ))
@@ -189,6 +190,15 @@ async def find_name(msg):
         if text_ready:
             return message_with_source
         else:
+            #tracemoe = TraceMoe()
+            #response = await tracemoe.search(
+            #    image_to_search_URL,
+            #    is_url=True
+            #)
+            #video = await tracemoe.video_preview_natural(response)
+            #discord_video = Discord.File(fp = BytesIO(video))
+
+
             return "❌"
 @client.event
 async def on_guild_join(guild):
@@ -297,6 +307,24 @@ async def on_message(msg):
 
         await msg.channel.send(embed = embed_to_send)
         await msg.delete()
+    
+    async def testTraceMoe():
+        if len(msg.attachments)>0:
+            image_to_search_URL = msg.attachments[0].url
+        tracemoe = TraceMoe()
+        async with msg.channel.typing():
+            response = tracemoe.search(
+                image_to_search_URL,
+                is_url=True
+            )
+            video = tracemoe.video_preview_natural(response)
+            msg_to_send = ""
+            msg_to_send += "Estoy "+str(response["docs"][0]["similarity"])+"\% seguro de que la imágen es del anime **"+response["docs"][0]["title_english"]
+            msg_to_send += "** del episodio "+str(response["docs"][0]["episode"])
+
+            discord_video = discord.File(fp = BytesIO(video),filename="preview.mp4")
+            await msg.channel.send(content = msg_to_send,file = discord_video)
+
     
     async def command_guilds():
         msg_to_say = ""
@@ -622,7 +650,7 @@ async def on_message(msg):
 
     if msg.content.find("spoiler") != -1:
         await command_spoiler()
-    elif msg.content.find("name") != -1 or msg_command.find("nombre") != -1:
+    elif msg.content.lower().find("name") != -1 or msg.content.lower().find("nombre") != -1:
         await command_name()
 
     if msg_received[:2]==activator:
@@ -657,7 +685,9 @@ async def on_message(msg):
             await command_anon()
         elif msg_command.find("say") == 0 or msg_command.find("test") == 0:
             await command_ping()
-        elif msg_command.find("di como"):
+        elif msg_command.find("di como")==0:
             await command_say_like()
+        elif msg_command.find("qwertz")==0:
+            await testTraceMoe()
 
 client.run(Discord_TOKEN)
