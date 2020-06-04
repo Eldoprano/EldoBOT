@@ -85,7 +85,7 @@ async def find_name(msg):
 
     if len(msg.attachments)==0:
         return("❌")
-    
+
     image_to_search_URL = msg.attachments[0].url
     if msg.attachments[0].filename.find(".mp4")!=-1:
         image_to_search = await get_video_frame(msg.attachments[0])
@@ -146,12 +146,12 @@ async def find_name(msg):
                     message_with_source += " es del artista **"+result_data["creator"] + "**, "
                     if "material" in result_data:
                         message_with_source += "inspirado en el anime *"+result_data["material"]
-                    if requests.get(result_data["source"]).status_code != 404:                    
+                    if requests.get(result_data["source"]).status_code != 404:
                         message_with_source += "* y el link al Twitt original es este:\n"
                         message_with_source += result_data["source"]
                     else:
                         message_with_source += "* y el link al Twitt original está caído."
-                    text_ready = True  
+                    text_ready = True
 
                 elif "sankaku_id" in result_data or "gelbooru_id" in result_data:
                     if "creator" in result_data:
@@ -231,7 +231,7 @@ async def on_raw_reaction_add(payload):
             #img_to_send = discord.File(img_to_send,filename="sauce.jpg")
             await msg.channel.send(msg_to_send)#,file=img_to_send)
         else:
-            await msg.add_reaction("❌") 
+            await msg.add_reaction("❌")
 
 @client.event
 async def on_message(msg):
@@ -258,11 +258,11 @@ async def on_message(msg):
         help_text += "**{}test_stats**:\n".format(activator)
         help_text += "El bot mostrará el uso de los emojis en el servidor. *En construcción*\n"
         help_text += "**{}emoji_stats [@usuario]**:\n".format(activator)
-        help_text += "El bot mostrará el uso de emojis del usuario. *En construcción*\n"        
+        help_text += "El bot mostrará el uso de emojis del usuario. *En construcción*\n"
         help_text += "**{}boost list**:\n".format(activator)
         help_text += "El bot devuelve una lista con los usuarios que boostean el servidor.\n"
         await msg.channel.send(help_text)
-    
+
     async def command_config():
         if msg.author.permissions_in(msg.channel).manage_channels:
             if msg.content.find("e!conf name ignore_message ")==0:
@@ -273,7 +273,7 @@ async def on_message(msg):
                 await msg.channel.send(content="Mensaje cambiado correctamente",delete_after=3)
         else:
             await msg.channel.send(content="No tienes permisos suficientes para hacer esto",delete_after=3)
-        
+
     async def command_config_permName():
         if msg.author.permissions_in(msg.channel).manage_channels:
             configurations["guilds"][msg.guild.id]["commands"]["name_channel_set"] = True
@@ -307,7 +307,70 @@ async def on_message(msg):
 
         await msg.channel.send(embed = embed_to_send)
         await msg.delete()
-    
+
+    async def debugTraceMoe():
+        if len(msg.attachments)>0:
+            image_to_search_URL = msg.attachments[0].url
+        else:
+            return
+        tracemoe = TraceMoe()
+
+        fileToSend = None
+
+        async with msg.channel.typing():
+            response = tracemoe.search(
+                image_to_search_URL,
+                is_url=True
+            )
+            try:
+                videoN = tracemoe.video_preview_natural(response)
+                fileToSend = discord.File(fp = BytesIO(videoN),filename="preview.mp4")
+            except:
+                pass
+                image = tracemoe.image_preview(response)
+                fileToSend = discord.File(fp = BytesIO(image),filename="preview.jpg")
+
+            # Detect type of Anime
+            if "is_adult" in response["docs"][0]:
+                if(response["docs"][0]["is_adult"]==True):
+                    typeOfAnime = "H"
+            else:
+                typeOfAnime = "anime"
+
+            # Get Anime tittle
+            if "title_english" in response["docs"][0]:
+                if response["docs"][0]["title_english"]!="":
+                    nameOfAnime = response["docs"][0]["title_english"]
+            else:
+                nameOfAnime = response["docs"][0]["anime"]
+
+            # Get Anime episode
+            if "episode" in response["docs"][0]:
+                if response["docs"][0]["episode"]!=None:
+                    episodeOfAnime = str(response["docs"][0]["episode"])
+            else:
+                episodeOfAnime = "cuyo número no recuerdo"
+
+            # Get Anime season (year)
+            if "season" in response["docs"][0]:
+                if response["docs"][0]["season"]!=None:
+                    seasonOfAnime = str(response["docs"][0]["season"])
+            else:
+                seasonOfAnime = "en el que se produjo"
+
+            # Get simmilarity
+            if "similarity" in response["docs"][0]:
+                if response["docs"][0]["similarity"]!=None:
+                    simmilarityOfAnime = "{:04.2f}".format(response["docs"][0]["similarity"]*100.0)
+            else:
+                print("similarity Not Found")
+                print(response)
+                return
+
+            msg_to_send = "Estoy {} seguro de que la imágen es de un {} del año {} llamado **\"{}\"** , episodio {}.".format(simmilarityOfAnime,typeOfAnime,seasonOfAnime,nameOfAnime,episodeOfAnime)
+
+            await msg.channel.send(content = msg_to_send,file = fileToSend)
+
     async def testTraceMoe():
         if len(msg.attachments)>0:
             image_to_search_URL = msg.attachments[0].url
@@ -319,19 +382,19 @@ async def on_message(msg):
             )
             video = tracemoe.video_preview_natural(response)
             msg_to_send = ""
-            msg_to_send += "Estoy "+str(response["docs"][0]["similarity"])+"\% seguro de que la imágen es del anime **"+response["docs"][0]["title_english"]
+            msg_to_send += "Estoy "+str(response["docs"][0]["similarity"])+"\% seguro de que la imágen es del anime **"+response["docs"][0][0]["title_english"]
             msg_to_send += "** del episodio "+str(response["docs"][0]["episode"])
 
             discord_video = discord.File(fp = BytesIO(video),filename="preview.mp4")
             await msg.channel.send(content = msg_to_send,file = discord_video)
 
-    
+
     async def command_guilds():
         msg_to_say = ""
         for guild in client.guilds:
             msg_to_say+=guild.name + "\n"
         await msg.channel.send(msg_to_say)
-    
+
     async def command_spoiler():
         if len(msg.attachments)>0:
             tmp_list_images=[]
@@ -351,7 +414,7 @@ async def on_message(msg):
             # Delete webhook
             await webhook_discord.delete()
             await msg.delete()
-    
+
 
     async def command_ping():
         await msg.channel.send("pong")
@@ -437,7 +500,7 @@ async def on_message(msg):
                 delete_this = await msg.channel.send("Nope")
                 await delete_this.delete()
                 await msg.add_reaction("❌")
-        
+
     async def command_boost_list():
         list_of_boost_users = msg.guild.premium_subscribers
         msg_to_send = ""
@@ -468,7 +531,7 @@ async def on_message(msg):
             del anon_list[tmp_user_id]
         await msg.channel.send(content="Tu perfil anónimo fué reseteado correctamente",delete_after=2.5)
         await msg.delete()
-        
+
     async def command_anon_apodo():
         tmp_msg = msg.content
         tmp_channel = msg.channel
@@ -488,7 +551,7 @@ async def on_message(msg):
 
         with open("anon_list.pkl", 'wb') as pickle_file:
             pickle.dump(anon_list,pickle_file)
-        
+
 
     async def command_anon_photo():
         tmp_channel = msg.channel
@@ -511,7 +574,7 @@ async def on_message(msg):
             anon_list[tmp_user_id]["foto"] = tmp_msg_image_url
         else:
             anon_list[tmp_user_id] = {"apodo":"Usuario Anónimo","foto":tmp_msg_image_url,"guild":tmp_guild_id}
-            
+
         with open("anon_list.pkl", 'wb') as pickle_file:
             pickle.dump(anon_list,pickle_file)
 
@@ -544,7 +607,7 @@ async def on_message(msg):
         tmp_clean_msg = msg.clean_content
         tmp_author = msg.author.display_name
         tmp_raw_mentions = msg.raw_mentions[0]
-        # Delete message 
+        # Delete message
         await msg.delete()
 
         print(msg_to_say)
@@ -593,7 +656,7 @@ async def on_message(msg):
             for element in tmp_list_of_existing_IDs:
                 list_of_existing_IDs.append(element[0])
 
-            # Creating a list of he emojis on the message, and saving information 
+            # Creating a list of he emojis on the message, and saving information
             # about the ones that we are seeing for the first time
             for raw_emoji in raw_emojis_in_msg:
                 temp_emojiID = raw_emoji[raw_emoji.find(":")+1:]
@@ -601,13 +664,13 @@ async def on_message(msg):
                 if not (temp_emojiID in list_of_existing_IDs or temp_emojiID in emojis_IDs):
                     emojis_call_names.append(raw_emoji[:raw_emoji.find(":")])
                     emojis_IDs.append(temp_emojiID)
-                    temp_emoji = client.get_emoji(int(emojis_IDs[-1]))  
+                    temp_emoji = client.get_emoji(int(emojis_IDs[-1]))
                     if(temp_emoji==None):
-                        print(emojis_call_names[-1]+" emoji not found in the server. Adding it anyways")   
-                        emojis_image_URL.append("https://cdn.discordapp.com/emojis/"+str(emojis_IDs[-1])+".png")       
+                        print(emojis_call_names[-1]+" emoji not found in the server. Adding it anyways")
+                        emojis_image_URL.append("https://cdn.discordapp.com/emojis/"+str(emojis_IDs[-1])+".png")
                     else:
-                        emojis_image_URL.append(str(temp_emoji.url))       
-            
+                        emojis_image_URL.append(str(temp_emoji.url))
+
             # Add the normie UNICODE emojis to the list
             normie_emoji_list= "".join(c for c in msg.content if c in emoji.UNICODE_EMOJI)
             for normie_emoji in normie_emoji_list:
@@ -616,7 +679,7 @@ async def on_message(msg):
                     emojis_call_names.append(unicodedata.name(normie_emoji))
                     emojis_IDs.append(str(ord(normie_emoji)))
                     emojis_image_URL.append("https://raw.githubusercontent.com/hfg-gmuend/openmoji/master/color/618x618/"+str(format(ord(normie_emoji),"x").upper())+".png")
-            
+
             # Add new emojis to database
             mySQL_query = "INSERT INTO emoji (emoji_id, call_name, image_URL) VALUES (%s, %s, %s) "
             records_to_insert = tuple(zip(emojis_IDs, emojis_call_names, emojis_image_URL))
@@ -657,7 +720,7 @@ async def on_message(msg):
         msg_command = msg_received[2:]
         if  msg_command.find("emoji_stats")==0 and msg.author.display_name=="Eldoprano":
             await command_emoji_stats()
-        elif msg_command.find("help") == 0 or msg_command.find("ayuda") == 0:
+        elif msg_command == "help" or msg_command == "ayuda":
             await command_help()
         elif msg_command.find("conf") == 0 or msg_command.find("configurar") == 0:
             await command_config()
@@ -669,13 +732,13 @@ async def on_message(msg):
             await command_say()
         elif msg_command.find("guilds") == 0 or msg_command.find("servidores") == 0:
             await command_guilds()
-        elif msg_command.find("ping") == 0 or msg_command.find("test") == 0:
+        elif msg_command == "ping" or msg_command == "test":
             await command_ping()
-        elif msg_command.find("boost list")==0:
+        elif msg_command == "boost list":
             await command_boost_list()
         elif msg_command.find("bot") == 0:
             await command_bot()
-        elif msg_command.find("reset") == 0 or msg_command.find("resetear") == 0:
+        elif msg_command =="reset" or msg_command == "resetear":
             await command_anon_reset()
         elif msg_command.find("apodo") == 0 or msg_command.find("nick") == 0:
             await command_anon_apodo()
@@ -689,5 +752,9 @@ async def on_message(msg):
             await command_say_like()
         elif msg_command.find("qwertz")==0:
             await testTraceMoe()
+        elif msg_command.find("qwerty")==0:
+            print("Entering debug")
+            await debugTraceMoe()
+
 
 client.run(Discord_TOKEN)
