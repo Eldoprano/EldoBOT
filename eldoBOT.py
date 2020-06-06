@@ -722,7 +722,7 @@ async def on_message(msg):
     msg_received = msg.content.lower()
     await save_emojis()
 
-    if msg.content.find("spoiler") != -1:
+    if msg.content.lower().find("spoiler") != -1:
         await command_spoiler()
     elif msg.content.lower().find("name") != -1 or msg.content.lower().find("nombre") != -1:
         await command_name()
