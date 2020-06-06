@@ -21,6 +21,13 @@ import pickle
 import cv2
 from tracemoe import TraceMoe
 
+# TraceMOE Limits:
+#   10 searches per minute
+#   150 searches per day
+#   https://soruly.github.io/trace.moe/#/
+# 
+# 
+
 # Get configurations
 configurations = pickle.load(open("configurations.pkl", "rb" ))
 activator = "e!"
@@ -334,6 +341,8 @@ async def on_message(msg):
             if "is_adult" in response["docs"][0]:
                 if(response["docs"][0]["is_adult"]==True):
                     typeOfAnime = "H"
+                else:
+                    typeOfAnime = "anime"
             else:
                 typeOfAnime = "anime"
 
@@ -341,6 +350,8 @@ async def on_message(msg):
             if "title_english" in response["docs"][0]:
                 if response["docs"][0]["title_english"]!="":
                     nameOfAnime = response["docs"][0]["title_english"]
+                else:
+                    nameOfAnime = response["docs"][0]["anime"]
             else:
                 nameOfAnime = response["docs"][0]["anime"]
 

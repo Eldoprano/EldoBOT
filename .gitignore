@@ -1,6 +1,10 @@
 keys.pkl
 anon_list.pkl
 temp.*
+*.png
+*.jpg
+*.mp4
+*.pyc
 
 # Created by https://www.gitignore.io/api/visualstudiocode
 # Edit at https://www.gitignore.io/?templates=visualstudiocode
