@@ -160,7 +160,7 @@ async def find_name(msg):
                         message_with_source += "* y el link al Twitt original está caído."
                     text_ready = True
 
-                elif "sankaku_id" in result_data or "gelbooru_id" in result_data:
+                elif "sankaku_id" in result_data or "gelbooru_id" in result_data or "konachan_id" in result_data:
                     if "creator" in result_data:
                         if result_data["creator"] == "":
                             print(result_data["material"])
@@ -184,7 +184,10 @@ async def find_name(msg):
                                 message_with_source += " y"
                         elif result_data["material"]!="":
                             message_with_source += " es de un anime llamado **" + result_data["material"] + "** y"
-                    message_with_source += " es del artista **"+result_data["creator"] + "**"
+                    if(result_data["creator"]!=""):
+                        message_with_source += " es del artista **"+result_data["creator"] + "**"
+                    else:
+                        message_with_source += " es del artista que lo produjo"
                     text_ready = True
             elif "getchu_id" in result_data:
                 message_with_source += " es de la comapnía de videojuegos *" + result_data["company"]+"* "
@@ -197,6 +200,10 @@ async def find_name(msg):
         if text_ready:
             return message_with_source
         else:
+            if float(similarity_of_result)>75:
+                with open('NameFails', 'a') as writer:
+                    writer.write("\n-----------------------\n")
+                    writer.write(str(result_data))
             #tracemoe = TraceMoe()
             #response = await tracemoe.search(
             #    image_to_search_URL,
