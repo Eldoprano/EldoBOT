@@ -20,6 +20,7 @@ import operator
 import pickle
 import cv2
 from tracemoe import TraceMoe
+from datetime import datetime
 
 # TraceMOE Limits:
 #   10 searches per minute
@@ -201,8 +202,8 @@ async def find_name(msg):
             return message_with_source
         else:
             if float(similarity_of_result)>75:
-                with open('NameFails', 'a') as writer:
-                    writer.write("\n-----------------------\n")
+                with open('log.ignore', 'a') as writer:
+                    writer.write("\n----------",datetime.today().strftime("%d/%m/%Y %H:%M:%S"),"-------------\n")
                     writer.write(str(result_data))
             #tracemoe = TraceMoe()
             #response = await tracemoe.search(
@@ -336,13 +337,30 @@ async def on_message(msg):
                 image_to_search_URL,
                 is_url=True
             )
-            try:
-                videoN = tracemoe.video_preview_natural(response)
-                fileToSend = discord.File(fp = BytesIO(videoN),filename="preview.mp4")
-            except:
-                pass
+            videoFound = False
+            for i, result in enumerate(response["docs"]):
+                # If we already searched the 3 first videos, we skip
+                # It's a strange solution, yeah, but i don't want to implement something better :P
+                if(i >=3):
+                    break
+                if result["similarity"] > 0.87:
+                    try:
+                        videoN = tracemoe.video_preview_natural(response,index=i)
+                        videoForce = tracemoe.video_preview(response,index=i)
+                        # If the video without the natural cut is bigger, then we show that video
+                        if(BytesIO(videoForce).getbuffer().nbytes > BytesIO(videoN).getbuffer().nbytes):
+                            videoN = videoForce 
+                        # If the video is not available, we skip
+                        if(BytesIO(videoN).getbuffer().nbytes <= 9):
+                            continue
+                        fileToSend = discord.File(fp = BytesIO(videoN),filename="preview.mp4")
+                        videoFound=True
+                        break
+                    except Exception as e: print(e)
+
+            if not videoFound:
                 image = tracemoe.image_preview(response)
-                fileToSend = discord.File(fp = BytesIO(image),filename="preview.jpg")
+                fileToSend = discord.File(fp = BytesIO(image),filename="Preview_not_found__sowy_uwu.jpg")
 
             # Detect type of Anime
             if "is_adult" in response["docs"][0]:
@@ -364,7 +382,7 @@ async def on_message(msg):
 
             # Get Anime episode
             if "episode" in response["docs"][0]:
-                if response["docs"][0]["episode"]!=None:
+                if response["docs"][0]["episode"]!="":
                     episodeOfAnime = str(response["docs"][0]["episode"])
             else:
                 episodeOfAnime = "cuyo número no recuerdo"
@@ -385,7 +403,7 @@ async def on_message(msg):
                 print(response)
                 return
 
-            msg_to_send = "Estoy {} seguro de que la imágen es de un {} del año {} llamado **\"{}\"** , episodio {}.".format(simmilarityOfAnime,typeOfAnime,seasonOfAnime,nameOfAnime,episodeOfAnime)
+            msg_to_send = "Estoy {}% seguro de que la imágen es de un {} del año {} llamado **\"{}\"** , episodio {}.".format(simmilarityOfAnime,typeOfAnime,seasonOfAnime,nameOfAnime,episodeOfAnime)
 
             await msg.channel.send(content = msg_to_send,file = fileToSend)
 
@@ -398,13 +416,22 @@ async def on_message(msg):
                 image_to_search_URL,
                 is_url=True
             )
-            video = tracemoe.video_preview_natural(response)
-            msg_to_send = ""
-            msg_to_send += "Estoy "+str(response["docs"][0]["similarity"])+"\% seguro de que la imágen es del anime **"+response["docs"][0][0]["title_english"]
-            msg_to_send += "** del episodio "+str(response["docs"][0]["episode"])
+            msg_to_send=""
+            try:
+                videoN = tracemoe.video_preview_natural(response)
+                print(BytesIO(videoN))
+                msg_to_send += "JSON de respuesta(" +str(len(BytesIO(videoN)))+"):\n"
+            except:
+                print("Nope")
+            msg_to_send += "```json\n"
+            msg_to_send += str(response)[:1900]
+            msg_to_send += "\n```"
 
-            discord_video = discord.File(fp = BytesIO(video),filename="preview.mp4")
-            await msg.channel.send(content = msg_to_send,file = discord_video)
+            #msg_to_send += "Estoy "+str(response["docs"][0]["similarity"])+"\% seguro de que la imágen es del anime **"+response["docs"][0][0]["title_english"]
+            
+
+            #discord_video = discord.File(fp = BytesIO(video),filename="preview.mp4")
+            await msg.channel.send(content = msg_to_send)
 
 
     async def command_guilds():
@@ -770,7 +797,7 @@ async def on_message(msg):
             await command_say_like()
         elif msg_command.find("qwertz")==0:
             await testTraceMoe()
-        elif msg_command.find("qwerty")==0:
+        elif msg_command.find("busca")==0:
             print("Entering debug")
             await debugTraceMoe()
 
