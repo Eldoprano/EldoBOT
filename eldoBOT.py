@@ -47,6 +47,12 @@ mycursor = mydb.cursor()
 Discord_TOKEN = keys["Discord_TOKEN"]
 sauceNAO_TOKEN = keys["sauceNAO_TOKEN"]
 
+# Statistics Token
+try: stats = pickle.load(open("stats.pkl", "rb" ))
+except Exception as e: 
+    print(e)
+    stats = {}
+
 # Initialize client
 client = discord.Client()
 try:
@@ -214,7 +220,7 @@ async def find_name(msg):
         else:
             if float(similarity_of_result)>75:
                 with open('log.ignore', 'a') as writer:
-                    writer.write("\n----------",datetime.today().strftime("%d/%m/%Y %H:%M:%S"),"-------------\n")
+                    writer.write("\n----------"+datetime.today().strftime("%d/%m/%Y %H:%M:%S")+"-------------\n")
                     writer.write(str(result_data))
 
             #tracemoe = TraceMoe()
@@ -245,25 +251,15 @@ async def on_ready():
     # Get channel for logs:
     channel_logs = await client.fetch_channel(708648213774598164)
 
+# Desactivado por mientras...
+"""
 @client.event
 async def on_raw_reaction_add(payload):
     if(str(payload.emoji) == "🔍" or str(payload.emoji) == "🔎"):
         channel = client.get_channel(payload.channel_id)
         msg = await channel.fetch_message(payload.message_id)
-        async with channel.typing():
-            msg_to_send,thumbnail = await find_name(msg)
-        # Si es que el comando fué enviado a un canal donde no lo permitimos
-        if msg_to_send.find("TEMP_MESSAGE")!=-1:
-            await msg.channel.send(content=msg_to_send.replace("TEMP_MESSAGE",""), delete_after=60)
-        elif(msg_to_send != "❌"):
-            if(thumbnail!=""):
-                img_to_send = discord.File(thumbnail,filename="sauce.jpg")
-                await msg.channel.send(msg_to_send,file=img_to_send)
-            else:
-                await msg.channel.send(msg_to_send)
-        else:
-            await msg.add_reaction("❌")
-
+        await new_find_name(msg)
+"""
 @client.event
 async def on_message(msg):
     global channel_logs
@@ -340,9 +336,9 @@ async def on_message(msg):
         await msg.delete()
 
     async def new_find_name(msg):
-
         # Check if we can send names to this channel
-        can_i_send_message = False
+        async with msg.channel.typing():
+            can_i_send_message = False
         if "name_channel" in configurations["guilds"][msg.guild.id]["commands"]:
             if configurations["guilds"][msg.guild.id]["commands"]["name_channel_set"] == True:
                 if msg.channel.id in configurations["guilds"][msg.guild.id]["commands"]["name_channel"]:
@@ -458,41 +454,44 @@ async def on_message(msg):
                                 emb_name = result_data["material"]
                         if(result_data["creator"]!=""):
                             emb_artist = result_data["creator"]
-                elif "getchu_id" in result_data:
+                if "getchu_id" in result_data:
                     emb_company = result_data["company"]
                     emb_game = result_data["title"]
-                else:
-                    # Si no lo encontramos por los medios convencionales, intenta más general... a la mala
+
+                # Rellena datos que no fueron llenados
+                if emb_name == "":
                     try: emb_name = result_data["title"]
                     except: pass
+                if emb_artist == "":
                     try: emb_artist = result_data["creator"]
                     except: pass
+                if emb_character == "":
                     try: emb_character = result_data["characters"]
                     except: pass
-                    try:
-                        if result_data["source"] != "":
-                            emb_link = result_data["source"]
-                        else:
-                            emb_link = result_data["source"]
+                if emb_link == "":
+                    try: emb_link = result_data["source"]
+                    except: pass
+                if emb_name == "":
+                    try: emb_name = result_data["eng_name"]
                     except: pass
 
             # Aquí ya deberíamos de tener todos los datos, así que empezamos a crear el mensaje
             if emb_name != "" or emb_artist != "" or emb_link != "":
                 emb_description = ""
                 if(emb_name != ""):
-                    emb_description += "**Nombre: ** "+emb_name+"\n"
+                    emb_description += "**Nombre: ** "+str(emb_name)+"\n"
                 if(emb_episode != ""):
-                    emb_description += "**Episodio: ** "+emb_episode+"\n"
+                    emb_description += "**Episodio: ** "+str(emb_episode)+"\n"
                 if(emb_character != ""):
-                    emb_description += "**Carácter: ** "+emb_character+"\n"
+                    emb_description += "**Carácter: ** "+str(emb_character)+"\n"
                 if(emb_artist != ""):
-                    emb_description += "**Artista: ** "+emb_artist+"\n"
+                    emb_description += "**Artista: ** "+str(emb_artist)+"\n"
                 if(emb_company != ""):
-                    emb_description += "**Compañía: ** "+emb_company+"\n"
+                    emb_description += "**Compañía: ** "+str(emb_company)+"\n"
                 if(emb_game != ""):
-                    emb_description += "**Juego: ** "+emb_game+"\n"
+                    emb_description += "**Juego: ** "+str(emb_game)+"\n"
                 if(emb_link != ""):
-                    emb_description += "**Link: ** "+emb_link+"\n"
+                    emb_description += "**Link: ** "+str(emb_link)+"\n"
 
                 emb_description += "**Encontrado en: **"+emb_index_saucenao+"\n"
 
@@ -514,9 +513,10 @@ async def on_message(msg):
                 await msg.channel.send(embed=embed_to_send)
 
             else:
+                await msg.add_reaction("❌")
                 if float(similarity_of_result)>75:
                     with open('log.ignore', 'a') as writer:
-                        writer.write("\n----------",datetime.today().strftime("%d/%m/%Y %H:%M:%S"),"-------------\n")
+                        writer.write("\n----------"+datetime.today().strftime("%d/%m/%Y %H:%M:%S")+"-------------\n")
                         writer.write(str(result_data))
 
                 return
@@ -898,6 +898,35 @@ async def on_message(msg):
         else:
             print("User: "+user_ID_to_imitate+" not found")
 
+    def statsAdd(command):
+        date_today = datetime.today().strftime("%d/%m/%Y")
+
+        if not date_today in stats:
+            stats[date_today]={}
+        if not command in stats[date_today]:
+            stats[date_today][command]=0
+        stats[date_today][command]+=1
+
+        with open("stats.pkl", 'wb') as pickle_file:
+            pickle.dump(stats,pickle_file)
+    
+    async def botStatsShow(date_to_search=""):
+        if date_to_search == "today":
+            date_to_search = datetime.today().strftime("%d/%m/%Y")
+            msg_to_send+="**"+date_to_search+"**:\n"
+            for command in stats[date_to_search]:
+                msg_to_send+="**"+command+"**:"+str(stats[day][command])+"\n"
+        else:
+            msg_to_send = ""
+            for day in stats:
+                msg_to_send+="**"+day+"**:\n"
+                for command in stats[day]:
+                    msg_to_send+="**"+command+"**:"+str(stats[day][command])+"\n"
+                if len(msg_to_send)>1930:
+                    await msg.channel.send(msg_to_send)
+                    msg_to_send = ""
+            await msg.channel.send(msg_to_send)
+
     # This saves in a Databases what emojis where used by wich user and when, so we can do statistics later on
     async def save_emojis():
         if re.findall('<:(.*?)>', msg.content, re.DOTALL) or len("".join(c for c in msg.content if c in emoji.UNICODE_EMOJI))>0:
@@ -968,52 +997,75 @@ async def on_message(msg):
     await save_emojis()
 
     if msg.content.lower().find("spoiler") != -1:
+        statsAdd("spoiler")
         await command_spoiler()
-    elif msg.content.lower().find("name") != -1 or msg.content.lower().find("nombre") != -1:
+    elif msg.content.lower().find("name") != -1:
+        statsAdd("name")
+        await new_find_name(msg)
+    elif msg.content.lower().find("nombre") != -1:
+        statsAdd("nombre")
         await command_name()
 
     if msg_received[:2]==activator:
         msg_command = msg_received[2:]
         if  msg_command.find("emoji_stats")==0 and msg.author.display_name=="Eldoprano":
+            statsAdd("emoji_stats")
             await command_emoji_stats()
         elif msg_command == "help" or msg_command == "ayuda":
+            statsAdd("help")
             await command_help()
         elif msg_command.find("conf") == 0 or msg_command.find("configurar") == 0:
+            statsAdd("conf")
             await command_config()
         elif msg_command.find("permitir name") == 0 or msg_command.find("permitir nombre") == 0:
+            statsAdd("permitir-name")
             await command_config_permName()
         elif msg_command.find("bloquear name") == 0 or msg_command.find("bloquear nombre") == 0:
+            statsAdd("bloquear-name")
             await command_config_bloqName()
         elif msg_command.find("say") == 0 or msg_command.find("di") == 0:
+            statsAdd("say")
             await command_say()
         elif msg_command.find("guilds") == 0 or msg_command.find("servidores") == 0:
+            statsAdd("guilds")
             await command_guilds()
         elif msg_command == "ping" or msg_command == "test":
+            statsAdd("ping")
             await command_ping()
         elif msg_command == "boost list":
+            statsAdd("boost")
             await command_boost_list()
         elif msg_command.find("bot") == 0:
+            statsAdd("bot")
             await command_bot()
         elif msg_command =="reset" or msg_command == "resetear":
+            statsAdd("reset")
             await command_anon_reset()
         elif msg_command.find("apodo") == 0 or msg_command.find("nick") == 0:
+            statsAdd("apodo")
             await command_anon_apodo()
         elif msg_command.find("foto") == 0 or msg_command.find("photo") == 0:
+            statsAdd("foto")
             await command_anon_photo()
-        elif msg_command.find("e!anon ")==0 and (msg.channel.id==706925747792511056 or msg.guild.id==646799198167105539 or msg.author.permissions_in(msg.channel).manage_messages):
+        elif msg_command.find("anon ")==0 and (msg.channel.id==706925747792511056 or msg.guild.id==646799198167105539 or msg.author.permissions_in(msg.channel).manage_messages):
+            statsAdd("anon")
             await command_anon()
-        elif msg_command.find("say") == 0 or msg_command.find("test") == 0:
+        elif msg_command.find("say") == 0:
+            statsAdd("say")
             await command_ping()
         elif msg_command.find("di como")==0:
+            statsAdd("di-como")
             await command_say_like()
         elif msg_command.find("qwertz")==0:
+            statsAdd("qwertz")
             await testTraceMoe()
         elif msg_command.find("busca")==0:
             print("Entering debug")
+            statsAdd("busca")
             await debugTraceMoe()
-        elif msg_command.find("nuev")==0:
-            print("Entering debug")
-            await new_find_name(msg)
+        elif msg_command.find("stats")==0:
+            await botStatsShow()
+            statsAdd("stats")
 
 
 client.run(Discord_TOKEN)
