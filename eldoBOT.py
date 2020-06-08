@@ -26,8 +26,8 @@ from datetime import datetime
 #   10 searches per minute
 #   150 searches per day
 #   https://soruly.github.io/trace.moe/#/
-# 
-# 
+#
+#
 
 # Get configurations
 configurations = pickle.load(open("configurations.pkl", "rb" ))
@@ -52,7 +52,8 @@ client = discord.Client()
 try:
     anon_list = pickle.load(open("anon_list.pkl", "rb" ))
     print("Pickle file loaded")
-except:
+except Exception as e:
+    print(e)
     print("Error, couldn't load Pickle File")
     anon_list = {}
 
@@ -126,6 +127,9 @@ async def find_name(msg):
         results = json.loads(r.text)
         result_data = results["results"][0]["data"]
         similarity_of_result = results["results"][0]["header"]["similarity"]
+        preview_of_result = ""
+        if "thumbnail" in results["results"][0]["header"]:
+            preview_of_result = results["results"][0]["header"]["thumbnail"]
 
         if float(similarity_of_result)>85:
             message_with_source = "Estoy " + str(similarity_of_result) +"\% seguro de que la imagen"
@@ -198,13 +202,21 @@ async def find_name(msg):
                 print("Encontramos fuente, pero no supimos como mostrarla. Link de la imagen:"+image_to_search_URL+"\n")
                 print("Array obtenido: "+str(result_data))
 
+        thumbnail = ""
+        try:
+            if preview_of_result!="":
+                response_image = requests.get(preview_of_result)
+                thumbnail = BytesIO(response_image.content)
+        except Exception as e: print(e)
+
         if text_ready:
-            return message_with_source
+            return (message_with_source,thumbnail)
         else:
             if float(similarity_of_result)>75:
                 with open('log.ignore', 'a') as writer:
                     writer.write("\n----------",datetime.today().strftime("%d/%m/%Y %H:%M:%S"),"-------------\n")
                     writer.write(str(result_data))
+
             #tracemoe = TraceMoe()
             #response = await tracemoe.search(
             #    image_to_search_URL,
@@ -214,7 +226,8 @@ async def find_name(msg):
             #discord_video = Discord.File(fp = BytesIO(video))
 
 
-            return "❌"
+            return ("❌",None)
+
 @client.event
 async def on_guild_join(guild):
     msg_to_send = "Fuimos invitados a un nuevo servidor!! Nombre:", guild.name
@@ -238,13 +251,16 @@ async def on_raw_reaction_add(payload):
         channel = client.get_channel(payload.channel_id)
         msg = await channel.fetch_message(payload.message_id)
         async with channel.typing():
-            msg_to_send = await find_name(msg)
+            msg_to_send,thumbnail = await find_name(msg)
+        # Si es que el comando fué enviado a un canal donde no lo permitimos
         if msg_to_send.find("TEMP_MESSAGE")!=-1:
             await msg.channel.send(content=msg_to_send.replace("TEMP_MESSAGE",""), delete_after=60)
         elif(msg_to_send != "❌"):
-            #img_to_send = await msg.attachments[0].read()
-            #img_to_send = discord.File(img_to_send,filename="sauce.jpg")
-            await msg.channel.send(msg_to_send)#,file=img_to_send)
+            if(thumbnail!=""):
+                img_to_send = discord.File(thumbnail,filename="sauce.jpg")
+                await msg.channel.send(msg_to_send,file=img_to_send)
+            else:
+                await msg.channel.send(msg_to_send)
         else:
             await msg.add_reaction("❌")
 
@@ -323,10 +339,193 @@ async def on_message(msg):
         await msg.channel.send(embed = embed_to_send)
         await msg.delete()
 
+    async def new_find_name(msg):
+
+        # Check if we can send names to this channel
+        can_i_send_message = False
+        if "name_channel" in configurations["guilds"][msg.guild.id]["commands"]:
+            if configurations["guilds"][msg.guild.id]["commands"]["name_channel_set"] == True:
+                if msg.channel.id in configurations["guilds"][msg.guild.id]["commands"]["name_channel"]:
+                    can_i_send_message = True
+                else:
+                    can_i_send_message = False
+            else: # If the user didn't configured the allowed channels, we will just send the command
+                can_i_send_message = True
+        else:
+            can_i_send_message = True
+
+        # If the user sent the command in a channel where we don't allow it, we inform him
+        if can_i_send_message == False:
+            await msg.channel.send(content=configurations["guilds"][msg.guild.id]["commands"]["name_ignore_message"], delete_after=60)
+            return
+
+        # If there is no attachment, we ignore it
+        if len(msg.attachments)==0:
+            await msg.channel.send(content="Tienes que enviar una imagen junto con este comando",delete_after=5)
+            return
+
+        # Get image URL
+        image_to_search_URL = msg.attachments[0].url
+        emb_user = msg.author.name
+
+        # If the image is a... video, then we get the first frame
+        if msg.attachments[0].filename.find(".mp4")!=-1:
+            image_to_search = await get_video_frame(msg.attachments[0])
+            image_to_search = Image.fromarray(image_to_search, 'RGB')
+        else:
+            image_to_search = requests.get(image_to_search_URL)
+            image_to_search = Image.open(BytesIO(image_to_search.content))
+        print("Searching image: " + image_to_search_URL)
+
+        image_to_search = image_to_search.convert('RGB')
+        image_to_search.thumbnail((250,250), resample=Image.ANTIALIAS)
+        imageData = io.BytesIO()
+        image_to_search.save(imageData,format='PNG')
+        text_ready = False
+
+        # Variables for the Embedded message:
+        emb_similarity = ""
+        emb_name = ""
+        emb_episode = ""
+        emb_character = ""
+        emb_artist = ""
+        emb_company = ""
+        emb_game = ""
+        emb_link = ""
+        emb_preview = ""
+
+
+        # Original URL (For future changes)
+        # url = 'http://saucenao.com/search.php?output_type=2&numres=1&minsim='+minsim+'&dbmask='+str(db_bitmask)+'&api_key='+api_key
+        url = 'http://saucenao.com/search.php?output_type=2&numres=1&minsim=85!&dbmask=79725015039&api_key='+sauceNAO_TOKEN
+        files = {'file': ("image.png", imageData.getvalue())}
+        imageData.close()
+        r = requests.post(url, files=files)
+        if r.status_code != 200:
+            if r.status_code == 403:
+                print('Incorrect or Invalid API Key! Please Edit Script to Configure...')
+            else:
+                #generally non 200 statuses are due to either overloaded servers or the user is out of searches
+                print("status code: "+str(r.status_code))
+                await msg.channel.send(content="Hey @Eldoprano#1758 ! Se que parece imposible, pero estos tipos acaba de agotar mi API de búsqueda :P")
+                await msg.add_reaction("🕖")
+        else:
+            results = json.loads(r.text)
+            result_data = results["results"][0]["data"]
+            similarity_of_result = results["results"][0]["header"]["similarity"]
+            if "thumbnail" in results["results"][0]["header"]:
+                emb_preview = results["results"][0]["header"]["thumbnail"]
+
+            emb_similarity = float(similarity_of_result)
+            if(float(similarity_of_result)>58):
+                emb_index_saucenao = results["results"][0]["header"]["index_name"]
+                emb_index_saucenao = emb_index_saucenao[emb_index_saucenao.find(":")+1:emb_index_saucenao.find("-")]
+                if "pixiv_id" in result_data:
+                    emb_artist = result_data["member_name"]
+                    if requests.get(result_data["ext_urls"][0]).status_code != 404:
+                        emb_link +=  result_data["ext_urls"][0]
+                elif "nijie_id" in result_data:
+                    emb_name = result_data["title"]
+                    emb_artist = result_data["member_name"]
+                    emb_link = result_data["ext_urls"][0]
+                elif "source" in result_data and not text_ready:
+                    if "part" in result_data:
+                        emb_name = result_data["source"]
+                        emb_episode = result_data["part"]
+                    elif result_data["source"].find("twitter.com")!=-1:
+                        emb_artist = result_data["creator"]
+                        if "material" in result_data:
+                            emb_name = result_data["material"]
+                        if requests.get(result_data["source"]).status_code != 404:
+                            emb_link = result_data["source"]
+                        else:
+                            emb_link = "**Link del Twitt original caído**"
+
+                    elif "sankaku_id" in result_data or "gelbooru_id" in result_data or "konachan_id" in result_data:
+                        if "creator" in result_data:
+                            if result_data["creator"] == "":
+                                if result_data["material"] != "":
+                                    emb_name = result_data["material"][0:result_data["material"].find(",")]
+                                    if result_data["characters"] != "":
+                                        emb_character = result_data["characters"]
+
+                        if "material" in result_data and not text_ready:
+                            if result_data["material"]=="original":
+                                if "characters" in result_data:
+                                    if result_data["characters"]!="":
+                                        emb_character = result_data["characters"]
+                            elif result_data["material"]!="":
+                                emb_name = result_data["material"]
+                        if(result_data["creator"]!=""):
+                            emb_artist = result_data["creator"]
+                elif "getchu_id" in result_data:
+                    emb_company = result_data["company"]
+                    emb_game = result_data["title"]
+                else:
+                    # Si no lo encontramos por los medios convencionales, intenta más general... a la mala
+                    try: emb_name = result_data["title"]
+                    except: pass
+                    try: emb_artist = result_data["creator"]
+                    except: pass
+                    try: emb_character = result_data["characters"]
+                    except: pass
+                    try:
+                        if result_data["source"] != "":
+                            emb_link = result_data["source"]
+                        else:
+                            emb_link = result_data["source"]
+                    except: pass
+
+            # Aquí ya deberíamos de tener todos los datos, así que empezamos a crear el mensaje
+            if emb_name != "" or emb_artist != "" or emb_link != "":
+                emb_description = ""
+                if(emb_name != ""):
+                    emb_description += "**Nombre: ** "+emb_name+"\n"
+                if(emb_episode != ""):
+                    emb_description += "**Episodio: ** "+emb_episode+"\n"
+                if(emb_character != ""):
+                    emb_description += "**Carácter: ** "+emb_character+"\n"
+                if(emb_artist != ""):
+                    emb_description += "**Artista: ** "+emb_artist+"\n"
+                if(emb_company != ""):
+                    emb_description += "**Compañía: ** "+emb_company+"\n"
+                if(emb_game != ""):
+                    emb_description += "**Juego: ** "+emb_game+"\n"
+                if(emb_link != ""):
+                    emb_description += "**Link: ** "+emb_link+"\n"
+
+                emb_description += "**Encontrado en: **"+emb_index_saucenao+"\n"
+
+                if emb_similarity > 85:
+                    emb_color = 1425173  # A nice green
+                    emb_embbed_tittle = "Nombre encontrado!"
+                elif emb_similarity > 65:
+                    emb_color = 16776960 # An insecure yellow
+                    emb_embbed_tittle = "Nombre quizás encontrado!"
+                else:
+                    emb_color = 15597568 # A worrying red
+                    emb_embbed_tittle = "Nombre probablemente encontrado!"
+
+                # Create Webhook
+                embed_to_send = discord.Embed(description=emb_description, colour=emb_color, title= emb_embbed_tittle).set_footer(text="Porcentaje de seguridad: " + str(emb_similarity)+ "% | Pedido por: "+ emb_user)
+                if emb_preview != "":
+                    embed_to_send.set_image(url=emb_preview)
+                # Send message
+                await msg.channel.send(embed=embed_to_send)
+
+            else:
+                if float(similarity_of_result)>75:
+                    with open('log.ignore', 'a') as writer:
+                        writer.write("\n----------",datetime.today().strftime("%d/%m/%Y %H:%M:%S"),"-------------\n")
+                        writer.write(str(result_data))
+
+                return
+
     async def debugTraceMoe():
         if len(msg.attachments)>0:
             image_to_search_URL = msg.attachments[0].url
         else:
+            await msg.channel.send(content="Tienes que enviar una imagen junto con este comando",delete_after=5)
             return
         tracemoe = TraceMoe()
 
@@ -347,11 +546,12 @@ async def on_message(msg):
                     try:
                         videoN = tracemoe.video_preview_natural(response,index=i)
                         videoForce = tracemoe.video_preview(response,index=i)
-                        # If the video without the natural cut is bigger, then we show that video
-                        if(BytesIO(videoForce).getbuffer().nbytes > BytesIO(videoN).getbuffer().nbytes):
-                            videoN = videoForce 
+                        # If the video without the natural cut is bigger with a diference of 1sec aprox, then we choose that one
+                        #print("Normal:",BytesIO(videoForce).getbuffer().nbytes,"vs Natural:",BytesIO(videoN).getbuffer().nbytes)
+                        if(BytesIO(videoForce).getbuffer().nbytes - BytesIO(videoN).getbuffer().nbytes>45000):
+                            videoN = videoForce
                         # If the video is not available, we skip
-                        if(BytesIO(videoN).getbuffer().nbytes <= 9):
+                        if(BytesIO(videoN).getbuffer().nbytes <= 500):
                             continue
                         fileToSend = discord.File(fp = BytesIO(videoN),filename="preview.mp4")
                         videoFound=True
@@ -384,20 +584,28 @@ async def on_message(msg):
             if "episode" in response["docs"][0]:
                 if response["docs"][0]["episode"]!="":
                     episodeOfAnime = str(response["docs"][0]["episode"])
+                else:
+                    episodeOfAnime = "cuyo número no recuerdo"
             else:
                 episodeOfAnime = "cuyo número no recuerdo"
 
             # Get Anime season (year)
             if "season" in response["docs"][0]:
-                if response["docs"][0]["season"]!=None:
+                if response["docs"][0]["season"]!="":
                     seasonOfAnime = str(response["docs"][0]["season"])
+                else:
+                    seasonOfAnime = "en el que se produjo"
             else:
                 seasonOfAnime = "en el que se produjo"
 
             # Get simmilarity
             if "similarity" in response["docs"][0]:
-                if response["docs"][0]["similarity"]!=None:
+                if response["docs"][0]["similarity"]!="":
                     simmilarityOfAnime = "{:04.2f}".format(response["docs"][0]["similarity"]*100.0)
+                else:
+                    print("similarity Not Found")
+                    print(response)
+                    return
             else:
                 print("similarity Not Found")
                 print(response)
@@ -421,14 +629,13 @@ async def on_message(msg):
                 videoN = tracemoe.video_preview_natural(response)
                 print(BytesIO(videoN))
                 msg_to_send += "JSON de respuesta(" +str(len(BytesIO(videoN)))+"):\n"
-            except:
-                print("Nope")
+            except Exception as e: print(e)
             msg_to_send += "```json\n"
             msg_to_send += str(response)[:1900]
             msg_to_send += "\n```"
 
             #msg_to_send += "Estoy "+str(response["docs"][0]["similarity"])+"\% seguro de que la imágen es del anime **"+response["docs"][0][0]["title_english"]
-            
+
 
             #discord_video = discord.File(fp = BytesIO(video),filename="preview.mp4")
             await msg.channel.send(content = msg_to_send)
@@ -536,11 +743,15 @@ async def on_message(msg):
     async def command_name():
         if len(msg.attachments)!=0:
             async with msg.channel.typing():
-                msg_to_send = await find_name(msg)
+                msg_to_send,thumbnail = await find_name(msg)
             if msg_to_send.find("TEMP_MESSAGE")!=-1:
                 await msg.channel.send(content=msg_to_send.replace("TEMP_MESSAGE",""), delete_after=60)
             elif(msg_to_send != "❌"):
-                await msg.channel.send(msg_to_send)
+                if(thumbnail!=""):
+                    img_to_send = discord.File(thumbnail,filename="sauce.jpg")
+                    await msg.channel.send(msg_to_send,file=img_to_send)
+                else:
+                    await msg.channel.send(msg_to_send)
             else:
                 delete_this = await msg.channel.send("Nope")
                 await delete_this.delete()
@@ -800,6 +1011,9 @@ async def on_message(msg):
         elif msg_command.find("busca")==0:
             print("Entering debug")
             await debugTraceMoe()
+        elif msg_command.find("nuev")==0:
+            print("Entering debug")
+            await new_find_name(msg)
 
 
 client.run(Discord_TOKEN)
