@@ -27,11 +27,17 @@ from datetime import datetime
 #   150 searches per day
 #   https://soruly.github.io/trace.moe/#/
 #
-#
+# SauceNAO Limits:
+#   10 searches per minute
+#   200 searches per day
 
 # Get configurations
 configurations = pickle.load(open("configurations.pkl", "rb" ))
 activator = "e!"
+
+# What is that???!!!!!
+# The informJSON
+#informJSON = pickle.load(open("informJSON.pkl", "rb" ))
 
 # Get some secrets from the magic Pickle
 keys = pickle.load(open("keys.pkl", "rb" ))
@@ -77,7 +83,7 @@ async def get_video_frame(attachment):
         video_file = await attachment.save(video_file)
     cam = cv2.VideoCapture("temp.mp4")
     ret,image_to_search = cam.read()
-    print(type(image_to_search),type(ret),type(cam),type(video_file))
+    #print(type(image_to_search),type(ret),type(cam),type(video_file))
     return image_to_search
 
 async def find_name(msg):
@@ -260,6 +266,7 @@ async def on_raw_reaction_add(payload):
         msg = await channel.fetch_message(payload.message_id)
         await new_find_name(msg)
 """
+temp_busquedas = True
 @client.event
 async def on_message(msg):
     global channel_logs
@@ -288,6 +295,10 @@ async def on_message(msg):
         help_text += "El bot mostrará el uso de emojis del usuario. *En construcción*\n"
         help_text += "**{}boost list**:\n".format(activator)
         help_text += "El bot devuelve una lista con los usuarios que boostean el servidor.\n"
+        help_text += "**{}permitir name:\n**".format(activator)
+        help_text += "Permite el uso del comando de búsqueda en el canal actual\n"
+        help_text += "**{}bloquear name:\n**".format(activator)
+        help_text += "Bloquea el uso del comando de búsqueda en el canal actual\n"
         await msg.channel.send(help_text)
 
     async def command_config():
@@ -336,9 +347,12 @@ async def on_message(msg):
         await msg.delete()
 
     async def new_find_name(msg):
+        global temp_busquedas
+        if not temp_busquedas:
+            await msg.channel.send("Nope! No te podré ayudar esta vez",delete_after=1.5)
+            return
         # Check if we can send names to this channel
-        async with msg.channel.typing():
-            can_i_send_message = False
+        can_i_send_message = False
         if "name_channel" in configurations["guilds"][msg.guild.id]["commands"]:
             if configurations["guilds"][msg.guild.id]["commands"]["name_channel_set"] == True:
                 if msg.channel.id in configurations["guilds"][msg.guild.id]["commands"]["name_channel"]:
@@ -352,14 +366,14 @@ async def on_message(msg):
 
         # If the user sent the command in a channel where we don't allow it, we inform him
         if can_i_send_message == False:
-            await msg.channel.send(content=configurations["guilds"][msg.guild.id]["commands"]["name_ignore_message"], delete_after=60)
+            #await msg.channel.send(content=configurations["guilds"][msg.guild.id]["commands"]["name_ignore_message"], delete_after=60)
             return
 
         # If there is no attachment, we ignore it
         if len(msg.attachments)==0:
-            await msg.channel.send(content="Tienes que enviar una imagen junto con este comando",delete_after=5)
             return
-
+        async with msg.channel.typing():
+            statsAdd("name")
         # Get image URL
         image_to_search_URL = msg.attachments[0].url
         emb_user = msg.author.name
@@ -393,7 +407,7 @@ async def on_message(msg):
 
         # Original URL (For future changes)
         # url = 'http://saucenao.com/search.php?output_type=2&numres=1&minsim='+minsim+'&dbmask='+str(db_bitmask)+'&api_key='+api_key
-        url = 'http://saucenao.com/search.php?output_type=2&numres=1&minsim=85!&dbmask=79725015039&api_key='+sauceNAO_TOKEN
+        url = 'http://saucenao.com/search.php?output_type=2&numres=3&minsim=85!&dbmask=79725015039&api_key='+sauceNAO_TOKEN
         files = {'file': ("image.png", imageData.getvalue())}
         imageData.close()
         r = requests.post(url, files=files)
@@ -415,11 +429,11 @@ async def on_message(msg):
             emb_similarity = float(similarity_of_result)
             if(float(similarity_of_result)>58):
                 emb_index_saucenao = results["results"][0]["header"]["index_name"]
-                emb_index_saucenao = emb_index_saucenao[emb_index_saucenao.find(":")+1:emb_index_saucenao.find("-")]
+                emb_index_saucenao = emb_index_saucenao[emb_index_saucenao.find(":")+1:emb_index_saucenao.find(" - ")]
                 if "pixiv_id" in result_data:
                     emb_artist = result_data["member_name"]
                     if requests.get(result_data["ext_urls"][0]).status_code != 404:
-                        emb_link +=  result_data["ext_urls"][0]
+                        emb_link =  result_data["ext_urls"][0]
                 elif "nijie_id" in result_data:
                     emb_name = result_data["title"]
                     emb_artist = result_data["member_name"]
@@ -463,13 +477,29 @@ async def on_message(msg):
                     try: emb_name = result_data["title"]
                     except: pass
                 if emb_artist == "":
-                    try: emb_artist = result_data["creator"]
+                    try: 
+                        if type(result_data["creator"])==type([]):
+                            for artist in result_data["creator"]:
+                                emb_artist += artist+", "
+                            emb_artist = emb_artist[:-2]
+                        else:
+                            emb_artist = result_data["creator"]
                     except: pass
                 if emb_character == "":
                     try: emb_character = result_data["characters"]
                     except: pass
                 if emb_link == "":
-                    try: emb_link = result_data["source"]
+                    try:
+                        tmp_request = requests.get(result_data["source"])
+                        if tmp_request.status_code < 300:
+                            emb_link = result_data["source"]
+                    except: emb_link = ""
+                if emb_link == "":
+                    try: 
+                        if type(result_data["ext_urls"])==type([]):
+                            emb_link = result_data["ext_urls"][0]
+                        else:
+                            emb_link = result_data["ext_urls"]
                     except: pass
                 if emb_name == "":
                     try: emb_name = result_data["eng_name"]
@@ -483,7 +513,7 @@ async def on_message(msg):
                 if(emb_episode != ""):
                     emb_description += "**Episodio: ** "+str(emb_episode)+"\n"
                 if(emb_character != ""):
-                    emb_description += "**Carácter: ** "+str(emb_character)+"\n"
+                    emb_description += "**Personaje: ** "+str(emb_character)+"\n"
                 if(emb_artist != ""):
                     emb_description += "**Artista: ** "+str(emb_artist)+"\n"
                 if(emb_company != ""):
@@ -495,10 +525,10 @@ async def on_message(msg):
 
                 emb_description += "**Encontrado en: **"+emb_index_saucenao+"\n"
 
-                if emb_similarity > 85:
+                if emb_similarity > 89:
                     emb_color = 1425173  # A nice green
                     emb_embbed_tittle = "Nombre encontrado!"
-                elif emb_similarity > 65:
+                elif emb_similarity > 73:
                     emb_color = 16776960 # An insecure yellow
                     emb_embbed_tittle = "Nombre quizás encontrado!"
                 else:
@@ -508,16 +538,22 @@ async def on_message(msg):
                 # Create Webhook
                 embed_to_send = discord.Embed(description=emb_description, colour=emb_color, title= emb_embbed_tittle).set_footer(text="Porcentaje de seguridad: " + str(emb_similarity)+ "% | Pedido por: "+ emb_user)
                 if emb_preview != "":
-                    embed_to_send.set_image(url=emb_preview)
+                    if requests.get(emb_preview).status_code == 200:
+                        embed_to_send.set_image(url=emb_preview)
                 # Send message
                 await msg.channel.send(embed=embed_to_send)
+                if(emb_similarity<91):
+                    await msg.channel.send(content="<@597235650361688064> Es posible que esta respuesta sea erronea, puedes venir a confirmar?")
 
-            else:
-                await msg.add_reaction("❌")
+            else:  
                 if float(similarity_of_result)>75:
                     with open('log.ignore', 'a') as writer:
-                        writer.write("\n----------"+datetime.today().strftime("%d/%m/%Y %H:%M:%S")+"-------------\n")
+                        writer.write("\n---------- NOT FOUND "+datetime.today().strftime("%d/%m/%Y %H:%M:%S")+"-------------\n")
+                        writer.write(str(results))
                         writer.write(str(result_data))
+                    await msg.add_reaction("➖")
+                else:
+                    await msg.add_reaction("❌")
 
                 return
 
@@ -525,7 +561,6 @@ async def on_message(msg):
         if len(msg.attachments)>0:
             image_to_search_URL = msg.attachments[0].url
         else:
-            await msg.channel.send(content="Tienes que enviar una imagen junto con este comando",delete_after=5)
             return
         tracemoe = TraceMoe()
 
@@ -614,6 +649,9 @@ async def on_message(msg):
             msg_to_send = "Estoy {}% seguro de que la imágen es de un {} del año {} llamado **\"{}\"** , episodio {}.".format(simmilarityOfAnime,typeOfAnime,seasonOfAnime,nameOfAnime,episodeOfAnime)
 
             await msg.channel.send(content = msg_to_send,file = fileToSend)
+            if((response["docs"][0]["similarity"]*100.0)<91):
+                await msg.channel.send(content="<@597235650361688064> Es posible que esta respuesta sea erronea, puedes venir a confirmar?")
+
 
     async def testTraceMoe():
         if len(msg.attachments)>0:
@@ -647,9 +685,24 @@ async def on_message(msg):
             msg_to_say+=guild.name + "\n"
         await msg.channel.send(msg_to_say)
 
+    def statsAdd(command):
+        if(msg.guild.id==646799198167105539):
+            return
+        date_today = datetime.today().strftime("%d/%m/%Y")
+
+        if not date_today in stats:
+            stats[date_today]={}
+        if not command in stats[date_today]:
+            stats[date_today][command]=0
+        stats[date_today][command]+=1
+
+        with open("stats.pkl", 'wb') as pickle_file:
+            pickle.dump(stats,pickle_file)
+
     async def command_spoiler():
         if len(msg.attachments)>0:
             tmp_list_images=[]
+            statsAdd("spoiler")
             for attachment in msg.attachments:
                 tmp_img_bytes = await attachment.read()
                 tmp_img_filename = attachment.filename
@@ -741,18 +794,23 @@ async def on_message(msg):
             await msg.channel.send(mensaje_a_mostrar)
 
     async def command_name():
+        if not temp_busquedas:
+            await msg.channel.send("Nope! No te podré ayudar esta vez",delete_after=1.5)
+            return
         if len(msg.attachments)!=0:
             async with msg.channel.typing():
                 msg_to_send,thumbnail = await find_name(msg)
             if msg_to_send.find("TEMP_MESSAGE")!=-1:
                 await msg.channel.send(content=msg_to_send.replace("TEMP_MESSAGE",""), delete_after=60)
             elif(msg_to_send != "❌"):
+                statsAdd("nombre")
                 if(thumbnail!=""):
                     img_to_send = discord.File(thumbnail,filename="sauce.jpg")
                     await msg.channel.send(msg_to_send,file=img_to_send)
                 else:
                     await msg.channel.send(msg_to_send)
             else:
+                statsAdd("nombre")
                 delete_this = await msg.channel.send("Nope")
                 await delete_this.delete()
                 await msg.add_reaction("❌")
@@ -862,7 +920,9 @@ async def on_message(msg):
         tmp_channel = msg.channel
         tmp_clean_msg = msg.clean_content
         tmp_author = msg.author.display_name
-        tmp_raw_mentions = msg.raw_mentions[0]
+        try:
+            tmp_raw_mentions = msg.raw_mentions[0]
+        except: pass
         # Delete message
         await msg.delete()
 
@@ -871,7 +931,7 @@ async def on_message(msg):
             user_ID_to_imitate = re.findall('<(.*?)>', tmp_content)[0]
             msg_to_say = msg_to_say.replace("<"+user_ID_to_imitate+">","")
             msg_to_say = msg_to_say.replace("e!di como id:","")
-            msg_to_say = tmp_clean_msg[tmp_clean_msg.find(msg_to_say[2:4]):] # Ohtia! Que es esto?? Pos... no hace falta entenderlo :P
+            #msg_to_say = tmp_clean_msg[tmp_clean_msg.find(msg_to_say[2:4]):] # Ohtia! Que es esto?? Pos... no hace falta entenderlo :P
         else:
             user_ID_to_imitate = str(tmp_raw_mentions)
             msg_to_say = msg_to_say.replace("e!di como","",1)
@@ -897,18 +957,6 @@ async def on_message(msg):
             await webhook_discord.delete()
         else:
             print("User: "+user_ID_to_imitate+" not found")
-
-    def statsAdd(command):
-        date_today = datetime.today().strftime("%d/%m/%Y")
-
-        if not date_today in stats:
-            stats[date_today]={}
-        if not command in stats[date_today]:
-            stats[date_today][command]=0
-        stats[date_today][command]+=1
-
-        with open("stats.pkl", 'wb') as pickle_file:
-            pickle.dump(stats,pickle_file)
     
     async def botStatsShow(date_to_search=""):
         if date_to_search == "today":
@@ -926,6 +974,15 @@ async def on_message(msg):
                     await msg.channel.send(msg_to_send)
                     msg_to_send = ""
             await msg.channel.send(msg_to_send)
+    
+    async def createGuild():
+        guildName = msg.content.replace("guild_create ","")
+        createdGuild = await client.create_guild(guildName, region=None, icon=None)
+        await msg.channel.send("Guild created!")
+        createdChannel = await guild.create_text_channel("general")
+        createdInvitation = await createdChannel.create_invite()
+        await msg.channel.send("Invitation URL:\n"+createdInvitation.url)
+        return
 
     # This saves in a Databases what emojis where used by wich user and when, so we can do statistics later on
     async def save_emojis():
@@ -993,22 +1050,20 @@ async def on_message(msg):
             mycursor.executemany(mySQL_query,records_to_insert)
             mydb.commit()
 
+    global temp_busquedas
     msg_received = msg.content.lower()
     await save_emojis()
 
     if msg.content.lower().find("spoiler") != -1:
-        statsAdd("spoiler")
         await command_spoiler()
     elif msg.content.lower().find("name") != -1:
-        statsAdd("name")
-        await new_find_name(msg)
+            await new_find_name(msg)
     elif msg.content.lower().find("nombre") != -1:
-        statsAdd("nombre")
         await command_name()
 
     if msg_received[:2]==activator:
         msg_command = msg_received[2:]
-        if  msg_command.find("emoji_stats")==0 and msg.author.display_name=="Eldoprano":
+        if  msg_command.find("emoji_stats")==0 and msg.author.permissions_in(msg.channel).kick_members:
             statsAdd("emoji_stats")
             await command_emoji_stats()
         elif msg_command == "help" or msg_command == "ayuda":
@@ -1023,6 +1078,9 @@ async def on_message(msg):
         elif msg_command.find("bloquear name") == 0 or msg_command.find("bloquear nombre") == 0:
             statsAdd("bloquear-name")
             await command_config_bloqName()
+        elif msg_command.find("di como")==0:
+            statsAdd("di-como")
+            await command_say_like()
         elif msg_command.find("say") == 0 or msg_command.find("di") == 0:
             statsAdd("say")
             await command_say()
@@ -1053,19 +1111,55 @@ async def on_message(msg):
         elif msg_command.find("say") == 0:
             statsAdd("say")
             await command_ping()
-        elif msg_command.find("di como")==0:
-            statsAdd("di-como")
-            await command_say_like()
         elif msg_command.find("qwertz")==0:
             statsAdd("qwertz")
             await testTraceMoe()
         elif msg_command.find("busca")==0:
-            print("Entering debug")
-            statsAdd("busca")
-            await debugTraceMoe()
+            if not temp_busquedas:
+                await msg.channel.send("Nope! No te podré ayudar esta vez")
+            else:
+                print("Entering debug")
+                statsAdd("busca")
+                await debugTraceMoe()
         elif msg_command.find("stats")==0:
             await botStatsShow()
             statsAdd("stats")
-
-
+        elif msg_command.find("guild_create")==0:
+            await createGuild()
+            statsAdd("guildCreate")
+        elif msg_command.find("hghghg")==0:
+            await tmpCreatInvitation()
+            statsAdd("invitationCreate")
+        elif msg_command.find("activa bus")==0:
+            if msg.author.permissions_in(msg.channel).kick_members:
+                if temp_busquedas:
+                    await msg.channel.send("El comando buscar ya está activado")
+                else:
+                    temp_busquedas = True
+                    await msg.channel.send("Búsquedas por imágen activadas")
+                statsAdd("activa")
+            else:
+                await msg.channel.send("No tienes los permisos suficientes para usar este comando")
+        elif msg_command.find("desactiva bus")==0:
+            if msg.author.permissions_in(msg.channel).kick_members:
+                if not temp_busquedas:
+                    await msg.channel.send("El comando buscar ya está desactivado")
+                else:
+                    temp_busquedas = False
+                    await msg.channel.send("Búsquedas por imágen desactivadas")
+                statsAdd("desactiva")
+            else:
+                await msg.channel.send("No tienes los permisos suficientes para usar este comando")
+        elif msg_command.isnumeric():
+            if(int(msg_command)<=10 and int(msg_command)>0):
+                list_of_number_emojis=["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+                message_sent=False
+                async for message_element in msg.channel.history(limit=4):
+                    if (message_element.author == msg.author and message_element.content != msg.content and not message_sent):
+                        for i in range(int(msg_command)):
+                            await message_element.add_reaction(list_of_number_emojis[i])
+                            message_sent = True
+            await msg.delete()
+        
+            
 client.run(Discord_TOKEN)
