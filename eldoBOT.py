@@ -11,7 +11,7 @@ from io import BytesIO
 import io
 import random
 import re
-import mysql.connector
+#import mysql.connector
 import emoji
 import unicodedata
 from unidecode import unidecode
@@ -37,13 +37,13 @@ activator = "e!"
 keys = pickle.load(open("keys.pkl", "rb" ))
 
  ## Connect to Database
-mydb = mysql.connector.connect(
+"""mydb = mysql.connector.connect(
      host=keys["Database"]["host"],
      user=keys["Database"]["user"],
      passwd=keys["Database"]["passwd"],
      database=keys["Database"]["database"])
 mycursor = mydb.cursor()
-
+"""
 Discord_TOKEN = keys["Discord_TOKEN"]
 sauceNAO_TOKEN = keys["sauceNAO_TOKEN"]
 
@@ -686,8 +686,8 @@ async def on_message(msg):
         mySQL_call += ("FROM HelloWorld.emoji_log ")
         mySQL_call += ("INNER JOIN HelloWorld.emoji ON emoji_log.emoji = emoji.emoji_id ")
         mySQL_call += ("WHERE emoji_log.user =" + str(user_to_search))
-        mycursor.execute(mySQL_call)
-        tmp_list_of_emojis = mycursor.fetchall()
+        #mycursor.execute(mySQL_call)
+        #tmp_list_of_emojis = mycursor.fetchall()
 
         list_of_emojis=[]
         for element in tmp_list_of_emojis:
@@ -714,8 +714,8 @@ async def on_message(msg):
 
         async def searchAll():
             print("Looking for stats data...")
-            mycursor.execute("SELECT emoji FROM emoji_log WHERE guildID='624079272155414528';")
-            tmp_list_of_emojis = mycursor.fetchall()
+            #mycursor.execute("SELECT emoji FROM emoji_log WHERE guildID='624079272155414528';")
+            #tmp_list_of_emojis = mycursor.fetchall()
             list_of_emojis=[]
             for element in tmp_list_of_emojis:
                 list_of_emojis.append(element[0])
@@ -935,7 +935,7 @@ async def on_message(msg):
             emojis_call_names = []
             emojis_image_URL = []
             emojis_to_count = []
-            mycursor.execute("SELECT emoji_id FROM emoji;")
+            #mycursor.execute("SELECT emoji_id FROM emoji;")
             tmp_list_of_existing_IDs = mycursor.fetchall()
             list_of_existing_IDs=[]
             for element in tmp_list_of_existing_IDs:
@@ -994,7 +994,7 @@ async def on_message(msg):
             mydb.commit()
 
     msg_received = msg.content.lower()
-    await save_emojis()
+    #await save_emojis()
 
     if msg.content.lower().find("spoiler") != -1:
         statsAdd("spoiler")
@@ -1066,6 +1066,16 @@ async def on_message(msg):
         elif msg_command.find("stats")==0:
             await botStatsShow()
             statsAdd("stats")
+        elif msg_command.isnumeric():
+            if(int(msg_command)<=10 and int(msg_command)>0):
+                list_of_number_emojis=["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+                message_sent=False
+                async for message_element in msg.channel.history(limit=4):
+                    if (message_element.author == msg.author and message_element.content != msg.content and not message_sent):
+                        for i in range(int(msg_command)):
+                            await message_element.add_reaction(list_of_number_emojis[i])
+                            message_sent = True
+            await msg.delete()
 
 
 client.run(Discord_TOKEN)
