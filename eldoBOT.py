@@ -4,7 +4,7 @@ import time
 import discord
 from discord import NotFound
 from dotenv import load_dotenv
-import requests #dependency
+import requests
 import json
 from PIL import Image
 from io import BytesIO
@@ -58,6 +58,7 @@ mycursor = mydb.cursor()
 
 Discord_TOKEN = keys["Discord_TOKEN"]
 sauceNAO_TOKEN = keys["sauceNAO_TOKEN"]
+DB_NAME = keys["Database"]["database"]
 
 # Statistics Token
 try: stats = pickle.load(open("stats.pkl", "rb" ))
@@ -738,14 +739,15 @@ async def on_message(msg):
         elif len(msg.raw_mentions)>0:
             user_to_search = msg.raw_mentions[0]
         else:
-            searchAll()
+            guildToSearch = msg.guild.id
+            searchAll(guildToSearch)
             return
 
-        mySQL_call = ("SELECT emoji.emoji_id, emoji.call_name ")
-        mySQL_call += ("FROM HelloWorld.emoji_log ")
-        mySQL_call += ("INNER JOIN HelloWorld.emoji ON emoji_log.emoji = emoji.emoji_id ")
-        mySQL_call += ("WHERE emoji_log.user =" + str(user_to_search))
-        mycursor.execute(mySQL_call)
+        mySQL_call =  ("SELECT e.EMOJI_ID ")
+        mySQL_call += ("FROM "+DB_NAME+".EMOJI e ")
+        mySQL_call += ("INNER JOIN ("+DB_NAME+".EMOJI_SENT s INNER JOIN "+DB_NAME+".USER u ON s.USER_ID=u.ID) ON s.EMOJI_ID=e.ID ")
+        mySQL_call += ("WHERE u.USER_ID = %s;")
+        mycursor.execute(mySQL_call, (str(user_to_search),))
         tmp_list_of_emojis = mycursor.fetchall()
 
         list_of_emojis=[]
@@ -771,9 +773,16 @@ async def on_message(msg):
                     mensaje_a_mostrar += "<:" + emote.name + ":" + str(emote.id) + "> -> " + str(times_repeated) + " | "
         await msg.channel.send(mensaje_a_mostrar)
 
-        async def searchAll():
+        async def searchAll(guildToSearch):
             print("Looking for stats data...")
-            mycursor.execute("SELECT emoji FROM emoji_log WHERE guildID='624079272155414528';")
+####
+            mySQL_call =  ("SELECT e.EMOJI_ID ")
+            mySQL_call += ("FROM "+DB_NAME+".EMOJI e ")
+            mySQL_call += ("INNER JOIN ("+DB_NAME+".EMOJI_SENT s INNER JOIN "+DB_NAME+".GUILD g ON s.GUILD_ID=g.ID) ON s.EMOJI_ID=e.ID ")
+            mySQL_call += ("WHERE g.GUILD_ID = " + str(guildToSearch) + ";") 
+
+
+            mycursor.execute(mySQL_call)
             tmp_list_of_emojis = mycursor.fetchall()
             list_of_emojis=[]
             for element in tmp_list_of_emojis:
@@ -1016,13 +1025,17 @@ async def on_message(msg):
             emojis_call_names = []
             emojis_image_URL = []
             emojis_to_count = []
-            mycursor.execute("SELECT emoji_id FROM emoji;")
+            emoji_DB_ID = []
+            mycursor.execute("SELECT EMOJI_ID, ID FROM "+DB_NAME+".EMOJI;")
             tmp_list_of_existing_IDs = mycursor.fetchall()
             list_of_existing_IDs=[]
             for element in tmp_list_of_existing_IDs:
                 list_of_existing_IDs.append(element[0])
+            list_of_existing_DB_IDs=[]
+            for element in tmp_list_of_existing_IDs:
+                list_of_existing_DB_IDs.append(element[1])
 
-            # Creating a list of he emojis on the message, and saving information
+            # Creating a list of the emojis on the message, and saving information
             # about the ones that we are seeing for the first time
             for raw_emoji in raw_emojis_in_msg:
                 temp_emojiID = raw_emoji[raw_emoji.find(":")+1:]
@@ -1036,6 +1049,8 @@ async def on_message(msg):
                         emojis_image_URL.append("https://cdn.discordapp.com/emojis/"+str(emojis_IDs[-1])+".png")
                     else:
                         emojis_image_URL.append(str(temp_emoji.url))
+                elif(temp_emojiID in list_of_existing_IDs):
+                    emoji_DB_ID.append(list_of_existing_DB_IDs[list_of_existing_IDs.index(temp_emojiID)])
 
             # Add the normie UNICODE emojis to the list
             normie_emoji_list= "".join(c for c in msg.content if c in emoji.UNICODE_EMOJI)
@@ -1044,33 +1059,74 @@ async def on_message(msg):
                 if not (str(ord(normie_emoji)) in list_of_existing_IDs or str(ord(normie_emoji)) in emojis_IDs):
                     emojis_call_names.append(unicodedata.name(normie_emoji))
                     emojis_IDs.append(str(ord(normie_emoji)))
-                    emojis_image_URL.append("https://raw.githubusercontent.com/hfg-gmuend/openmoji/master/color/618x618/"+str(format(ord(normie_emoji),"x").upper())+".png")
+                    emojis_image_URL.append("openmoji/master/color/618x618/"+str(format(ord(normie_emoji),"x").upper())+".png")
+                elif(str(ord(normie_emoji)) in list_of_existing_IDs):
+                    emoji_DB_ID.append(list_of_existing_DB_IDs[list_of_existing_IDs.index(temp_emojiID)])
 
             # Add new emojis to database
-            mySQL_query = "INSERT INTO emoji (emoji_id, call_name, image_URL) VALUES (%s, %s, %s) "
-            records_to_insert = tuple(zip(emojis_IDs, emojis_call_names, emojis_image_URL))
-            mycursor.executemany(mySQL_query,records_to_insert)
-            mydb.commit()
-            if(len(records_to_insert)>0):
-                print("We just added " + str(len(emojis_IDs))+" new emoji(s)! Here the list: "+str(emojis_call_names))
+            if(len(emojis_IDs)>0):
+                mySQL_query = "INSERT INTO "+DB_NAME+".EMOJI (EMOJI_ID, NAME, IMAGE_URL) VALUES (%s, %s, %s) "
+                records_to_insert = tuple(zip(emojis_IDs, emojis_call_names, emojis_image_URL))
+                mycursor.executemany(mySQL_query,records_to_insert)
+                mydb.commit()
+                if(len(records_to_insert)>0):
+                    print("We just added " + str(len(emojis_IDs))+" new emoji(s)! Here the list: "+str(emojis_call_names))
+
+                for i_emoji in range(len(records_to_insert)): # Cool code that extracts the real DB ID's
+                    emoji_DB_ID.append(mycursor.lastrowid-i_emoji)
 
             # Checking if the writer of the message is already on our Database
-            mycursor.execute("SELECT discordID FROM HelloWorld.user;")
+            mycursor.execute("SELECT USER_ID FROM "+DB_NAME +
+                             ".USER WHERE USER.USER_ID = " + str(msg.author.id) + ";")
             tmp_list_of_existing_IDs = mycursor.fetchall()
-            list_of_existing_IDs=[]
-            for element in tmp_list_of_existing_IDs:
-                list_of_existing_IDs.append(element[0])
-            if not str(msg.author.id) in list_of_existing_IDs:
-                mySQL_query = "INSERT INTO user (discordID ,name, pictureURL) VALUES (%s, %s, %s) "
-                mycursor.execute(mySQL_query,(str(msg.author.id), unidecode(msg.author.name).replace("DROP","DRO_P").replace("drop","dro_p").replace(";",",").replace("*","+"), str(msg.author.avatar_url)))
+            if(mycursor.rowcount == 0):
+                mySQL_query = "INSERT INTO " + DB_NAME + ".USER (USER_ID ,USERNAME, IMAGE_URL) VALUES (%s, %s, %s);"
+                mycursor.execute(mySQL_query, (str(msg.author.id), unidecode(msg.author.name).replace(
+                    "DROP", "DRO_P").replace("drop", "dro_p").replace("*", "+"), # Lame&unnecesary SQL-Injection protection
+                    str(msg.author.avatar_url)[:str(msg.author.avatar_url).find("?")]))
                 mydb.commit()
+            
+            # Checking if channel is on our Database
+            mycursor.execute("SELECT CHANNEL_ID FROM "+DB_NAME +
+                             ".CHANNEL WHERE CHANNEL.CHANNEL_ID = " + str(msg.channel.id) + ";")
+            tmp_list_of_existing_IDs = mycursor.fetchall()
+            # Insert Channel if it isn't there
+            if(mycursor.rowcount == 0):
+                mycursor.execute("SELECT ID FROM "+DB_NAME +
+                             ".GUILD WHERE GUILD.GUILD_ID = " + str(msg.guild.id) + ";")
+                tmp_list_of_existing_IDs = mycursor.fetchall()
+                
+                if(mycursor.rowcount == 0):
+                    print("ERROR, GUILD NOT FOUND!")
+                else:
+                    guild_DB_id = tmp_list_of_existing_IDs[0][0]
+                    mySQL_query = "INSERT INTO " + DB_NAME + ".CHANNEL (CHANNEL_ID ,GUILD_ID, NAME) VALUES (%s, %s, %s);"
+                    mycursor.execute(mySQL_query, (str(msg.channel.id), str(guild_DB_id), unidecode(msg.channel.name).replace(
+                        "DROP", "DRO_P").replace("drop", "dro_p").replace("*", "+")))
+                    mydb.commit()
 
             # Put the emoji + user in the database
-            userID_list = [msg.author.id]*(len(emojis_to_count))
-            guildID_list = [msg.guild.id]*(len(emojis_to_count))
-            channelID_list = [msg.channel.id]*(len(emojis_to_count))
-            records_to_insert = tuple(zip(emojis_to_count,userID_list,guildID_list,channelID_list))
-            mySQL_query = "INSERT INTO emoji_log (emoji, user, guildID, channelID) VALUES (%s, %s, %s, %s) "
+            ## Get user ID
+            mycursor.execute("SELECT ID FROM "+DB_NAME +
+                            ".USER WHERE USER.USER_ID = " + str(msg.author.id) + ";")
+            tmp_list_of_existing_IDs = mycursor.fetchall()
+            if(mycursor.rowcount == 0):
+                print("ERROR, AUTHOR NOT FOUND!")
+            else:
+                author_DB_id = tmp_list_of_existing_IDs[0][0]
+            ## Get guild ID
+            mycursor.execute("SELECT ID FROM "+DB_NAME +
+                            ".GUILD WHERE GUILD.GUILD_ID = " + str(msg.guild.id) + ";")
+            tmp_list_of_existing_IDs = mycursor.fetchall()
+            if(mycursor.rowcount == 0):
+                print("ERROR, GUILD NOT FOUND!")
+            else:
+                guild_DB_id = tmp_list_of_existing_IDs[0][0]
+
+            userID_list = [author_DB_id]*(len(emoji_DB_ID))
+            guildID_list = [guild_DB_id]*(len(emoji_DB_ID))
+            records_to_insert = tuple(zip(emoji_DB_ID,userID_list,guildID_list))
+            mySQL_query = "INSERT INTO EMOJI_SENT (EMOJI_ID, USER_ID, GUILD_ID) VALUES (%s, %s, %s) "
             mycursor.executemany(mySQL_query,records_to_insert)
             mydb.commit()
 
