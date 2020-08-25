@@ -732,6 +732,41 @@ async def on_message(msg):
         await msg.channel.send("pong")
 
     async def command_emoji_stats():
+
+        async def searchAll(guildToSearch):
+            print("Looking for stats data...")
+            mySQL_call =  ("SELECT e.EMOJI_ID ")
+            mySQL_call += ("FROM "+DB_NAME+".EMOJI e ")
+            mySQL_call += ("INNER JOIN ("+DB_NAME+".EMOJI_SENT s INNER JOIN "+DB_NAME+".GUILD g ON s.GUILD_ID=g.ID) ON s.EMOJI_ID=e.ID ")
+            mySQL_call += ("WHERE g.GUILD_ID = " + str(guildToSearch) + ";") 
+
+
+            mycursor.execute(mySQL_call)
+            tmp_list_of_emojis = mycursor.fetchall()
+            list_of_emojis=[]
+            for element in tmp_list_of_emojis:
+                list_of_emojis.append(element[0])
+            dic_with_repetitions = Counter(list_of_emojis)
+            mensaje_a_mostrar = "Aquí una lista (Función en construcción):\n"
+
+            # Sort Dictionary and save in Tuples
+            sorted_list_emojis = sorted(dic_with_repetitions.items(), key=operator.itemgetter(1), reverse=True)
+            for emoji_id, times_repeated in sorted_list_emojis:
+                # Normie Emoticons😂 <- Puajj
+                if len(emoji_id) < 18:
+                    #print(mensaje_a_mostrar)
+                    if(len(mensaje_a_mostrar)>=1800):
+                        await msg.channel.send(mensaje_a_mostrar)
+                        mensaje_a_mostrar = ""
+                    mensaje_a_mostrar += chr(int(emoji_id)) + " -> " + str(times_repeated) + " | "
+
+                # Discord Emotes :doge: <- Nice :3
+                else:
+                    emote = client.get_emoji(int(emoji_id))
+                    if(emote!=None):
+                        mensaje_a_mostrar += "<:" + emote.name + ":" + str(emote.id) + "> -> " + str(times_repeated) + " | "
+            await msg.channel.send(mensaje_a_mostrar)
+
         if msg.content == ("e!emoji_stats yo"):
             user_to_search = msg.author.id
         elif msg.content.find("e!emoji_stats id: ")==0:
@@ -773,40 +808,6 @@ async def on_message(msg):
                     mensaje_a_mostrar += "<:" + emote.name + ":" + str(emote.id) + "> -> " + str(times_repeated) + " | "
         await msg.channel.send(mensaje_a_mostrar)
 
-        async def searchAll(guildToSearch):
-            print("Looking for stats data...")
-####
-            mySQL_call =  ("SELECT e.EMOJI_ID ")
-            mySQL_call += ("FROM "+DB_NAME+".EMOJI e ")
-            mySQL_call += ("INNER JOIN ("+DB_NAME+".EMOJI_SENT s INNER JOIN "+DB_NAME+".GUILD g ON s.GUILD_ID=g.ID) ON s.EMOJI_ID=e.ID ")
-            mySQL_call += ("WHERE g.GUILD_ID = " + str(guildToSearch) + ";") 
-
-
-            mycursor.execute(mySQL_call)
-            tmp_list_of_emojis = mycursor.fetchall()
-            list_of_emojis=[]
-            for element in tmp_list_of_emojis:
-                list_of_emojis.append(element[0])
-            dic_with_repetitions = Counter(list_of_emojis)
-            mensaje_a_mostrar = "Aquí una lista (Función en construcción):\n"
-
-            # Sort Dictionary and save in Tuples
-            sorted_list_emojis = sorted(dic_with_repetitions.items(), key=operator.itemgetter(1), reverse=True)
-            for emoji_id, times_repeated in sorted_list_emojis:
-                # Normie Emoticons😂 <- Puajj
-                if len(emoji_id) < 18:
-                    #print(mensaje_a_mostrar)
-                    if(len(mensaje_a_mostrar)>=1800):
-                        await msg.channel.send(mensaje_a_mostrar)
-                        mensaje_a_mostrar = ""
-                    mensaje_a_mostrar += chr(int(emoji_id)) + " -> " + str(times_repeated) + " | "
-
-                # Discord Emotes :doge: <- Nice :3
-                else:
-                    emote = client.get_emoji(int(emoji_id))
-                    if(emote!=None):
-                        mensaje_a_mostrar += "<:" + emote.name + ":" + str(emote.id) + "> -> " + str(times_repeated) + " | "
-            await msg.channel.send(mensaje_a_mostrar)
 
     async def command_name():
         if not temp_busquedas:
@@ -1009,12 +1010,14 @@ async def on_message(msg):
             await msg.channel.send(msg_to_send)"""
     
     async def createGuild():
+        """
         guildName = msg.content.replace("guild_create ","")
         createdGuild = await client.create_guild(guildName, region=None, icon=None)
         await msg.channel.send("Guild created!")
-        createdChannel = await guild.create_text_channel("general")
+        createdChannel = await createdGuild.create_text_channel("general")
         createdInvitation = await createdChannel.create_invite()
-        await msg.channel.send("Invitation URL:\n"+createdInvitation.url)
+        await msg.channel.send("Invitation URL:\n"+createdInvitation.url)"""
+        await msg.channel.send("Función desactivada")
         return
 
     # This saves in a Databases what emojis where used by wich user and when, so we can do statistics later on
@@ -1203,7 +1206,7 @@ async def on_message(msg):
                 await debugTraceMoe()
         elif msg_command.find("stats")==0:
             await botStatsShow()
-            x("stats")
+            statsAdd("stats")
         elif msg_command.find("guild_create")==0:
             await createGuild()
             statsAdd("guildCreate")
