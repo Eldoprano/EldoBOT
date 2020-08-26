@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 matplotlib.use('Agg')
 from tracemoe import TraceMoe
 from datetime import datetime
+import imagehash # Image fingerprinting
 
 # TraceMOE Limits:
 #   10 searches per minute
@@ -77,6 +78,7 @@ except Exception as e:
     anon_list = {}
 
 channel_logs=0
+messages_to_react = []
 
 # Notes:
 # Hey!! Add https://soruly.github.io/trace.moe/#/ to your bot! It has an easy to use API, and nice limits
@@ -257,6 +259,57 @@ async def on_guild_join(guild):
         with open("configurations.pkl", 'wb') as pickle_file:
             pickle.dump(configurations,pickle_file)
 
+# Lee el tipo de reacción. Si es positiva (y viene de un miembro nivel +3), aceptalo y actualiza la DB
+# Si es negativa, busca con TraceMOE y pregunta de nuevo todo esto (eliminando la fallida)
+# Si es también negativa, ábrelo a los usuarios
+@client.event
+async def on_raw_reaction_add(payload):
+    global messages_to_react
+    list_of_messages = list(zip(*messages_to_react))
+    if len(list_of_messages)==0:
+        return
+    # ID in DB
+    list_of_DB_ids = list_of_messages[1]
+
+    # Discord messages
+    list_of_messages = list_of_messages[0]
+
+    # IDs from the messages
+    list_of_message_IDs=[]
+    for element in list_of_messages:
+        list_of_message_IDs.append(str(element.id))
+
+
+    if str(payload.message_id) in list_of_message_IDs and payload.event_type == "REACTION_ADD":
+        if payload.user_id == 702233706240278579: # eldoBOT
+            return
+        guild_of_reaction = await client.fetch_guild(payload.guild_id)
+        author_of_reaction = await guild_of_reaction.fetch_member(payload.user_id)
+        can_react = False
+        for rol in author_of_reaction.roles: # Eww, Hardcoded :P (>=lvl 5)
+            if(rol.id == 630560405814771762 or rol.name=="Godness"):
+                can_react=True
+        if not can_react:
+            the_reactions = list_of_messages[list_of_message_IDs.index(str(payload.message_id))].reactions
+            for reaction in the_reactions:
+                await reaction.remove(author_of_reaction)
+        if payload.emoji.name == "✅":
+            print("Sending good news to DB")
+            mySQL_query = "UPDATE "+DB_NAME+".NAME_IMAGE SET FOUND=1, FOUND_BY_BOT=1 \
+                WHERE ID="+str(list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])+";"
+            mycursor.execute(mySQL_query)
+            mydb.commit()
+        elif payload.emoji.name == "❌":
+            print("Sending bad news to DB")
+            mySQL_query = "UPDATE "+DB_NAME+".NAME_IMAGE SET FOUND=0, FOUND_BY_BOT=0 \
+                WHERE ID="+str(list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])+";"
+            mycursor.execute(mySQL_query)
+            mydb.commit()
+        elif payload.emoji.name == "🎦":
+            print("bruh")
+            # Tracemoe search
+
+
 @client.event
 async def on_ready():
     global channel_logs
@@ -273,6 +326,15 @@ async def on_raw_reaction_add(payload):
         msg = await channel.fetch_message(payload.message_id)
         await new_find_name(msg)
 """
+
+def addUserToDB(author):
+    mySQL_query = "INSERT INTO " + DB_NAME + ".USER (USER_ID ,USERNAME, IMAGE_URL) VALUES (%s, %s, %s);"
+    mycursor.execute(mySQL_query, (str(author.id), unidecode(author.name).replace(
+        "DROP", "DRO_P").replace("drop", "dro_p").replace("*", "+"), # Lame&unnecesary SQL-Injection protection
+        str(author.avatar_url)[:str(author.avatar_url).find("?")]))
+    mydb.commit()
+    return mycursor.lastrowid
+
 temp_busquedas = True
 @client.event
 async def on_message(msg):
@@ -354,10 +416,15 @@ async def on_message(msg):
         await msg.delete()
 
     async def new_find_name(msg):
+        # If there is no attachment, we ignore it
+        if len(msg.attachments)==0:
+            return
+
         global temp_busquedas
         if not temp_busquedas:
             await msg.channel.send("Nope! No te podré ayudar esta vez",delete_after=1.5)
             return
+
         # Check if we can send names to this channel
         can_i_send_message = False
         if "name_channel" in configurations["guilds"][msg.guild.id]["commands"]:
@@ -376,9 +443,6 @@ async def on_message(msg):
             #await msg.channel.send(content=configurations["guilds"][msg.guild.id]["commands"]["name_ignore_message"], delete_after=60)
             return
 
-        # If there is no attachment, we ignore it
-        if len(msg.attachments)==0:
-            return
         async with msg.channel.typing():
             statsAdd("name")
         # Get image URL
@@ -416,7 +480,6 @@ async def on_message(msg):
         # url = 'http://saucenao.com/search.php?output_type=2&numres=1&minsim='+minsim+'&dbmask='+str(db_bitmask)+'&api_key='+api_key
         url = 'http://saucenao.com/search.php?output_type=2&numres=3&minsim=85!&dbmask=79725015039&api_key='+sauceNAO_TOKEN
         files = {'file': ("image.png", imageData.getvalue())}
-        imageData.close()
         r = requests.post(url, files=files)
         if r.status_code != 200:
             if r.status_code == 403:
@@ -548,9 +611,12 @@ async def on_message(msg):
                     if requests.get(emb_preview).status_code == 200:
                         embed_to_send.set_image(url=emb_preview)
                 # Send message
-                await msg.channel.send(embed=embed_to_send)
-                if(emb_similarity<91):
-                    await msg.channel.send(content="<@597235650361688064> Es posible que esta respuesta sea erronea, puedes venir a confirmar?")
+                embed_sent = await msg.channel.send(embed=embed_to_send)
+
+                # También una reacción para buscar con TraceMOE, si es que si funcionó, pero el usuario quiere video
+                await embed_sent.add_reaction("✅")
+                await embed_sent.add_reaction("❌")
+                #await embed_sent.add_reaction("🎦")
 
             else:  
                 if float(similarity_of_result)>75:
@@ -561,8 +627,35 @@ async def on_message(msg):
                     await msg.add_reaction("➖")
                 else:
                     await msg.add_reaction("❌")
+        
+            print("PIL Operations")
+            pil_image = Image.open(imageData)
+            image_hash = str(imagehash.phash(pil_image,16))
+            pil_image.save("temp_images/"+image_hash+".png")
 
-                return
+            with open("out.txt", "wb") as outfile:
+                # Copy the BytesIO stream to the output file
+                outfile.write(imageData.getbuffer())
+            imageData.close()
+
+
+            print("SQL Operations")
+            mySQL_query = "SELECT ID FROM eldoBOT_DB.USER WHERE USER_ID="+str(msg.author.id)+";"
+            mycursor.execute(mySQL_query)
+            tmp_user_DBid = mycursor.fetchall()[0][0]
+            if(mycursor.rowcount==0):
+                tmp_user_DBid = addUserToDB(msg.author)
+            mySQL_query = "SELECT ID FROM eldoBOT_DB.GUILD WHERE GUILD_ID="+str(msg.guild.id)+";"
+            mycursor.execute(mySQL_query)
+            tmp_guild_DBid = mycursor.fetchall()[0][0]
+
+            mySQL_query = "INSERT INTO "+DB_NAME+".NAME_IMAGE (HASH, URL, FILE_NAME, EXTENSION, GUILD_THAT_ASKED, USER_THAT_ASKED) VALUES (%s, %s, %s, %s, %s, %s) "
+            mycursor.execute(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
+            mydb.commit()
+            global messages_to_react
+            messages_to_react.append([embed_sent,mycursor.lastrowid])
+
+
 
     async def debugTraceMoe():
         if len(msg.attachments)>0:
@@ -1064,7 +1157,8 @@ async def on_message(msg):
                     emojis_IDs.append(str(ord(normie_emoji)))
                     emojis_image_URL.append("openmoji/master/color/618x618/"+str(format(ord(normie_emoji),"x").upper())+".png")
                 elif(str(ord(normie_emoji)) in list_of_existing_IDs):
-                    emoji_DB_ID.append(list_of_existing_DB_IDs[list_of_existing_IDs.index(temp_emojiID)])
+                    emoji_DB_ID.append(
+                        list_of_existing_DB_IDs[list_of_existing_IDs.index(str(ord(normie_emoji)))])
 
             # Add new emojis to database
             if(len(emojis_IDs)>0):
@@ -1083,11 +1177,7 @@ async def on_message(msg):
                              ".USER WHERE USER.USER_ID = " + str(msg.author.id) + ";")
             tmp_list_of_existing_IDs = mycursor.fetchall()
             if(mycursor.rowcount == 0):
-                mySQL_query = "INSERT INTO " + DB_NAME + ".USER (USER_ID ,USERNAME, IMAGE_URL) VALUES (%s, %s, %s);"
-                mycursor.execute(mySQL_query, (str(msg.author.id), unidecode(msg.author.name).replace(
-                    "DROP", "DRO_P").replace("drop", "dro_p").replace("*", "+"), # Lame&unnecesary SQL-Injection protection
-                    str(msg.author.avatar_url)[:str(msg.author.avatar_url).find("?")]))
-                mydb.commit()
+                addUserToDB(msg.author)
             
             # Checking if channel is on our Database
             mycursor.execute("SELECT CHANNEL_ID FROM "+DB_NAME +
