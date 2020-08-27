@@ -258,6 +258,103 @@ async def on_guild_join(guild):
         configurations["guilds"][guild.id] = {"general":{},"commands":{"name_channel_set":False,"name_channel":[],"name_ignore_message":""},"others":{}}
         with open("configurations.pkl", 'wb') as pickle_file:
             pickle.dump(configurations,pickle_file)
+        
+async def debugTraceMoe(image_to_search_URL="",msg=None):
+    if image_to_search_URL=="":
+        if len(msg.attachments)>0:
+            image_to_search_URL = msg.attachments[0].url
+        else:
+            return
+
+    tracemoe = TraceMoe()
+    fileToSend = None
+
+    async with msg.channel.typing():
+        response = tracemoe.search(
+            image_to_search_URL,
+            is_url=True
+        )
+        videoFound = False
+        for i, result in enumerate(response["docs"]):
+            # If we already searched the 3 first videos, we skip
+            # It's a strange solution, yeah, but i don't want to implement something better :P
+            if(i >=3):
+                break
+            if result["similarity"] > 0.87:
+                try:
+                    videoN = tracemoe.video_preview_natural(response,index=i)
+                    videoForce = tracemoe.video_preview(response,index=i)
+                    # If the video without the natural cut is bigger with a diference of 1sec aprox, then we choose that one
+                    #print("Normal:",BytesIO(videoForce).getbuffer().nbytes,"vs Natural:",BytesIO(videoN).getbuffer().nbytes)
+                    if(BytesIO(videoForce).getbuffer().nbytes - BytesIO(videoN).getbuffer().nbytes>45000):
+                        videoN = videoForce
+                    # If the video is not available, we skip
+                    if(BytesIO(videoN).getbuffer().nbytes <= 500):
+                        continue
+                    fileToSend = discord.File(fp = BytesIO(videoN),filename="preview.mp4")
+                    videoFound=True
+                    break
+                except Exception as e: print(e)
+
+        if not videoFound:
+            image = tracemoe.image_preview(response)
+            fileToSend = discord.File(fp = BytesIO(image),filename="Preview_not_found__sowy_uwu.jpg")
+
+        # Detect type of Anime
+        if "is_adult" in response["docs"][0]:
+            if(response["docs"][0]["is_adult"]==True):
+                typeOfAnime = "H"
+            else:
+                typeOfAnime = "anime"
+        else:
+            typeOfAnime = "anime"
+
+        # Get Anime tittle
+        if "title_english" in response["docs"][0]:
+            if response["docs"][0]["title_english"]!="":
+                nameOfAnime = response["docs"][0]["title_english"]
+            else:
+                nameOfAnime = response["docs"][0]["anime"]
+        else:
+            nameOfAnime = response["docs"][0]["anime"]
+
+        # Get Anime episode
+        if "episode" in response["docs"][0]:
+            if response["docs"][0]["episode"]!="":
+                episodeOfAnime = str(response["docs"][0]["episode"])
+            else:
+                episodeOfAnime = "cuyo número no recuerdo"
+        else:
+            episodeOfAnime = "cuyo número no recuerdo"
+
+        # Get Anime season (year)
+        if "season" in response["docs"][0]:
+            if response["docs"][0]["season"]!="":
+                seasonOfAnime = str(response["docs"][0]["season"])
+            else:
+                seasonOfAnime = "en el que se produjo"
+        else:
+            seasonOfAnime = "en el que se produjo"
+
+        # Get simmilarity
+        if "similarity" in response["docs"][0]:
+            if response["docs"][0]["similarity"]!="":
+                simmilarityOfAnime = "{:04.2f}".format(response["docs"][0]["similarity"]*100.0)
+            else:
+                print("similarity Not Found")
+                print(response)
+                return
+        else:
+            print("similarity Not Found")
+            print(response)
+            return
+
+        msg_to_send = "Estoy {}% seguro de que la imágen es de un {} del año {} llamado **\"{}\"** , episodio {}.".format(simmilarityOfAnime,typeOfAnime,seasonOfAnime,nameOfAnime,episodeOfAnime)
+
+        await msg.channel.send(content = msg_to_send,file = fileToSend)
+        if((response["docs"][0]["similarity"]*100.0)<91):
+            await msg.channel.send(content="<@597235650361688064> Es posible que esta respuesta sea erronea, puedes venir a confirmar?")
+
 
 # Lee el tipo de reacción. Si es positiva (y viene de un miembro nivel +3), aceptalo y actualiza la DB
 # Si es negativa, busca con TraceMOE y pregunta de nuevo todo esto (eliminando la fallida)
@@ -268,6 +365,9 @@ async def on_raw_reaction_add(payload):
     list_of_messages = list(zip(*messages_to_react))
     if len(list_of_messages)==0:
         return
+    # URL of image
+    list_of_image_URL = list_of_messages[2]
+
     # ID in DB
     list_of_DB_ids = list_of_messages[1]
 
@@ -283,16 +383,18 @@ async def on_raw_reaction_add(payload):
     if str(payload.message_id) in list_of_message_IDs and payload.event_type == "REACTION_ADD":
         if payload.user_id == 702233706240278579: # eldoBOT
             return
-        guild_of_reaction = await client.fetch_guild(payload.guild_id)
+        guild_of_reaction = client.get_guild(payload.guild_id)
         author_of_reaction = await guild_of_reaction.fetch_member(payload.user_id)
         can_react = False
         for rol in author_of_reaction.roles: # Eww, Hardcoded :P (>=lvl 5)
             if(rol.id == 630560405814771762 or rol.name=="Godness"):
                 can_react=True
         if not can_react:
+            print("user can't decide here")
             the_reactions = list_of_messages[list_of_message_IDs.index(str(payload.message_id))].reactions
             for reaction in the_reactions:
                 await reaction.remove(author_of_reaction)
+            return
         if payload.emoji.name == "✅":
             print("Sending good news to DB")
             mySQL_query = "UPDATE "+DB_NAME+".NAME_IMAGE SET FOUND=1, FOUND_BY_BOT=1 \
@@ -306,8 +408,9 @@ async def on_raw_reaction_add(payload):
             mycursor.execute(mySQL_query)
             mydb.commit()
         elif payload.emoji.name == "🎦":
-            print("bruh")
-            # Tracemoe search
+            channel_of_reaction = guild_of_reaction.get_channel(payload.channel_id)
+            message_of_reaction = await channel_of_reaction.fetch_message(payload.message_id)
+            await debugTraceMoe(list_of_image_URL[list_of_message_IDs.index(str(payload.message_id))],message_of_reaction)
 
 
 @client.event
@@ -575,6 +678,7 @@ async def on_message(msg):
                     try: emb_name = result_data["eng_name"]
                     except: pass
 
+            embed_sent = None
             # Aquí ya deberíamos de tener todos los datos, así que empezamos a crear el mensaje
             if emb_name != "" or emb_artist != "" or emb_link != "":
                 emb_description = ""
@@ -608,15 +712,18 @@ async def on_message(msg):
                 # Create Webhook
                 embed_to_send = discord.Embed(description=emb_description, colour=emb_color, title= emb_embbed_tittle).set_footer(text="Porcentaje de seguridad: " + str(emb_similarity)+ "% | Pedido por: "+ emb_user)
                 if emb_preview != "":
-                    if requests.get(emb_preview).status_code == 200:
-                        embed_to_send.set_image(url=emb_preview)
+                    emb_preview_file = requests.get(emb_preview)
+                    if emb_preview_file.status_code == 200:
+                        tmp_msg = await channel_logs.send(content="temp_file. Descripción: \n"+emb_description,file = discord.File(BytesIO(emb_preview_file.content),filename="eldoBOT_te_quiere.png"))
+                        tmp_msg_image_url = tmp_msg.attachments[0].url
+                        embed_to_send.set_image(url=tmp_msg_image_url)
                 # Send message
                 embed_sent = await msg.channel.send(embed=embed_to_send)
 
                 # También una reacción para buscar con TraceMOE, si es que si funcionó, pero el usuario quiere video
                 await embed_sent.add_reaction("✅")
                 await embed_sent.add_reaction("❌")
-                #await embed_sent.add_reaction("🎦")
+                await embed_sent.add_reaction("🎦")
 
             else:  
                 if float(similarity_of_result)>75:
@@ -642,9 +749,11 @@ async def on_message(msg):
             print("SQL Operations")
             mySQL_query = "SELECT ID FROM eldoBOT_DB.USER WHERE USER_ID="+str(msg.author.id)+";"
             mycursor.execute(mySQL_query)
-            tmp_user_DBid = mycursor.fetchall()[0][0]
+            tmp_user_DBid = mycursor.fetchall()
             if(mycursor.rowcount==0):
                 tmp_user_DBid = addUserToDB(msg.author)
+            else:
+                tmp_user_DBid = tmp_user_DBid[0][0]
             mySQL_query = "SELECT ID FROM eldoBOT_DB.GUILD WHERE GUILD_ID="+str(msg.guild.id)+";"
             mycursor.execute(mySQL_query)
             tmp_guild_DBid = mycursor.fetchall()[0][0]
@@ -653,105 +762,10 @@ async def on_message(msg):
             mycursor.execute(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
             mydb.commit()
             global messages_to_react
-            messages_to_react.append([embed_sent,mycursor.lastrowid])
-
-
-
-    async def debugTraceMoe():
-        if len(msg.attachments)>0:
-            image_to_search_URL = msg.attachments[0].url
-        else:
-            return
-        tracemoe = TraceMoe()
-
-        fileToSend = None
-
-        async with msg.channel.typing():
-            response = tracemoe.search(
-                image_to_search_URL,
-                is_url=True
-            )
-            videoFound = False
-            for i, result in enumerate(response["docs"]):
-                # If we already searched the 3 first videos, we skip
-                # It's a strange solution, yeah, but i don't want to implement something better :P
-                if(i >=3):
-                    break
-                if result["similarity"] > 0.87:
-                    try:
-                        videoN = tracemoe.video_preview_natural(response,index=i)
-                        videoForce = tracemoe.video_preview(response,index=i)
-                        # If the video without the natural cut is bigger with a diference of 1sec aprox, then we choose that one
-                        #print("Normal:",BytesIO(videoForce).getbuffer().nbytes,"vs Natural:",BytesIO(videoN).getbuffer().nbytes)
-                        if(BytesIO(videoForce).getbuffer().nbytes - BytesIO(videoN).getbuffer().nbytes>45000):
-                            videoN = videoForce
-                        # If the video is not available, we skip
-                        if(BytesIO(videoN).getbuffer().nbytes <= 500):
-                            continue
-                        fileToSend = discord.File(fp = BytesIO(videoN),filename="preview.mp4")
-                        videoFound=True
-                        break
-                    except Exception as e: print(e)
-
-            if not videoFound:
-                image = tracemoe.image_preview(response)
-                fileToSend = discord.File(fp = BytesIO(image),filename="Preview_not_found__sowy_uwu.jpg")
-
-            # Detect type of Anime
-            if "is_adult" in response["docs"][0]:
-                if(response["docs"][0]["is_adult"]==True):
-                    typeOfAnime = "H"
-                else:
-                    typeOfAnime = "anime"
-            else:
-                typeOfAnime = "anime"
-
-            # Get Anime tittle
-            if "title_english" in response["docs"][0]:
-                if response["docs"][0]["title_english"]!="":
-                    nameOfAnime = response["docs"][0]["title_english"]
-                else:
-                    nameOfAnime = response["docs"][0]["anime"]
-            else:
-                nameOfAnime = response["docs"][0]["anime"]
-
-            # Get Anime episode
-            if "episode" in response["docs"][0]:
-                if response["docs"][0]["episode"]!="":
-                    episodeOfAnime = str(response["docs"][0]["episode"])
-                else:
-                    episodeOfAnime = "cuyo número no recuerdo"
-            else:
-                episodeOfAnime = "cuyo número no recuerdo"
-
-            # Get Anime season (year)
-            if "season" in response["docs"][0]:
-                if response["docs"][0]["season"]!="":
-                    seasonOfAnime = str(response["docs"][0]["season"])
-                else:
-                    seasonOfAnime = "en el que se produjo"
-            else:
-                seasonOfAnime = "en el que se produjo"
-
-            # Get simmilarity
-            if "similarity" in response["docs"][0]:
-                if response["docs"][0]["similarity"]!="":
-                    simmilarityOfAnime = "{:04.2f}".format(response["docs"][0]["similarity"]*100.0)
-                else:
-                    print("similarity Not Found")
-                    print(response)
-                    return
-            else:
-                print("similarity Not Found")
-                print(response)
-                return
-
-            msg_to_send = "Estoy {}% seguro de que la imágen es de un {} del año {} llamado **\"{}\"** , episodio {}.".format(simmilarityOfAnime,typeOfAnime,seasonOfAnime,nameOfAnime,episodeOfAnime)
-
-            await msg.channel.send(content = msg_to_send,file = fileToSend)
-            if((response["docs"][0]["similarity"]*100.0)<91):
-                await msg.channel.send(content="<@597235650361688064> Es posible que esta respuesta sea erronea, puedes venir a confirmar?")
-
+            
+            # Change this if you want to read reactions from failed searches (TODO)
+            if embed_sent!=None:
+                messages_to_react.append([embed_sent,mycursor.lastrowid,tmp_msg_image_url])
 
     async def testTraceMoe():
         if len(msg.attachments)>0:
@@ -1293,7 +1307,7 @@ async def on_message(msg):
             else:
                 print("Entering debug")
                 statsAdd("busca")
-                await debugTraceMoe()
+                await debugTraceMoe(msg=msg)
         elif msg_command.find("stats")==0:
             await botStatsShow()
             statsAdd("stats")
