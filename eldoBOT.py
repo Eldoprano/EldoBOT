@@ -379,6 +379,18 @@ async def on_raw_reaction_add(payload):
     for element in list_of_messages:
         list_of_message_IDs.append(str(element.id))
 
+    def change_embed_dic(dictionary,confirmed,user_that_confirmed):
+        if confirmed:
+            dictionary["color"]=1425173
+            dictionary["title"] = "Confirmamos, nombre encontrado!"
+            dictionary["footer"]["text"] = "Confirmado por " + \
+                user_that_confirmed + dictionary["footer"]["text"][dictionary["footer"]["text"].index('|')-1:]
+        else:
+            dictionary["color"] = 15597568
+            dictionary["title"] = "Mission failed, we'll get em next time"
+            dictionary["footer"]["text"] = "Negado por " + \
+                user_that_confirmed + dictionary["footer"]["text"][dictionary["footer"]["text"].index('|')-1:]
+        return discord.Embed.from_dict(dictionary)
 
     if str(payload.message_id) in list_of_message_IDs and payload.event_type == "REACTION_ADD":
         if payload.user_id == 702233706240278579: # eldoBOT
@@ -386,31 +398,66 @@ async def on_raw_reaction_add(payload):
         guild_of_reaction = client.get_guild(payload.guild_id)
         author_of_reaction = await guild_of_reaction.fetch_member(payload.user_id)
         can_react = False
-        for rol in author_of_reaction.roles: # Eww, Hardcoded :P (>=lvl 5)
-            if(rol.id == 630560405814771762 or rol.name=="Godness"):
+        for rol in author_of_reaction.roles: # Eww, Hardcoded :P (>=lvl 6)
+            if(rol.id == 646136111634055178 or rol.name=="Godness"):
                 can_react=True
         if not can_react:
-            print("user can't decide here")
             the_reactions = list_of_messages[list_of_message_IDs.index(str(payload.message_id))].reactions
             for reaction in the_reactions:
                 await reaction.remove(author_of_reaction)
             return
         if payload.emoji.name == "✅":
             print("Sending good news to DB")
-            mySQL_query = "UPDATE "+DB_NAME+".NAME_IMAGE SET FOUND=1, FOUND_BY_BOT=1 \
-                WHERE ID="+str(list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])+";"
+            # Get User ID
+            mySQL_query = "SELECT ID FROM "+DB_NAME+".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
             mycursor.execute(mySQL_query)
+            tmp_user_DBid = mycursor.fetchall()
+            if(mycursor.rowcount==0):
+                tmp_user_DBid = addUserToDB(author_of_reaction)
+            else:
+                tmp_user_DBid = tmp_user_DBid[0][0]
+
+            # Update status of message
+            mySQL_query = "UPDATE "+DB_NAME+".NAME_IMAGE SET FOUND=1, FOUND_BY_BOT=1, CONFIRMED_BY=%s \
+                WHERE ID="+str(list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])+";"
+            mycursor.execute(mySQL_query,(tmp_user_DBid,))
             mydb.commit()
+            # Remove message from list, so users we just hear the opinion of the 1rst User
+            messages_to_react.pop(list_of_message_IDs.index(str(payload.message_id)))
+            # Show who confirmed to be true
+            embed_message = list_of_messages[list_of_message_IDs.index(str(payload.message_id))].embeds[0]
+            embed_message = change_embed_dic(embed_message.to_dict(),True,str(author_of_reaction))
+            await list_of_messages[list_of_message_IDs.index(str(payload.message_id))].edit(embed = embed_message)
+
         elif payload.emoji.name == "❌":
             print("Sending bad news to DB")
-            mySQL_query = "UPDATE "+DB_NAME+".NAME_IMAGE SET FOUND=0, FOUND_BY_BOT=0 \
-                WHERE ID="+str(list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])+";"
+            # Get User ID
+            mySQL_query = "SELECT ID FROM "+DB_NAME+".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
             mycursor.execute(mySQL_query)
+            tmp_user_DBid = mycursor.fetchall()
+            if(mycursor.rowcount==0):
+                tmp_user_DBid = addUserToDB(author_of_reaction)
+            else:
+                tmp_user_DBid = tmp_user_DBid[0][0]
+
+            # Update status of message
+            mySQL_query = "UPDATE "+DB_NAME+".NAME_IMAGE SET FOUND_BY_BOT=0, CONFIRMED_BY=%s \
+                WHERE ID="+str(list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])+";"
+            mycursor.execute(mySQL_query, (tmp_user_DBid,))
             mydb.commit()
+            # Remove message from list, so users we just hear the opinion of the 1rst User
+            messages_to_react.pop(list_of_message_IDs.index(str(payload.message_id)))
+            # Show who confirmed to be true
+            embed_message = list_of_messages[list_of_message_IDs.index(str(payload.message_id))].embeds[0]
+            embed_message = change_embed_dic(embed_message.to_dict(),False,str(author_of_reaction))
+            await list_of_messages[list_of_message_IDs.index(str(payload.message_id))].edit(embed = embed_message)
+
         elif payload.emoji.name == "🎦":
             channel_of_reaction = guild_of_reaction.get_channel(payload.channel_id)
             message_of_reaction = await channel_of_reaction.fetch_message(payload.message_id)
             await debugTraceMoe(list_of_image_URL[list_of_message_IDs.index(str(payload.message_id))],message_of_reaction)
+            # Remove message from list, so users don't call the command multiple times
+            messages_to_react.pop(list_of_message_IDs.index(str(payload.message_id)))
 
 
 @client.event
@@ -510,8 +557,7 @@ async def on_message(msg):
         text_to_say = text_to_say.replace("e!di","",1)
 
         # temp solution
-        text_to_say = text_to_say.replace("@everyone","every**nyan**")
-        text_to_say = text_to_say.replace("@here","nope")
+        text_to_say = discord.utils.escape_mentions(text_to_say)
 
         embed_to_send = discord.Embed(description=text_to_say, colour=16761856).set_footer(text="Enviado por: " + msg.author.display_name)
 
@@ -709,8 +755,35 @@ async def on_message(msg):
                     emb_color = 15597568 # A worrying red
                     emb_embbed_tittle = "Nombre probablemente encontrado!"
 
+                text_in_footer = "Porcentaje de seguridad: " + str(emb_similarity)+ "% | Pedido por: "+ emb_user
+                
+                # Check if it was already confirmed by a user
+                hash_found = False
+                mySQL_query = "SELECT HASH, FOUND, CONFIRMED_BY FROM " + \
+                    DB_NAME+".NAME_IMAGE WHERE CONFIRMED_BY IS NOT NULL;"
+                mycursor.execute(mySQL_query)
+                sql_result = mycursor.fetchall()
+                pil_image = Image.open(imageData)
+                image_hash = imagehash.phash(pil_image,16)
+                for row in sql_result:
+                    received_hash = imagehash.hex_to_hash(row[0])
+                    if received_hash-image_hash < 40:
+                        mySQL_query = "SELECT USERNAME FROM "+DB_NAME+".USER WHERE ID="+str(row[2])+";"
+                        mycursor.execute(mySQL_query)
+                        tmp_user_DBid = mycursor.fetchall()
+
+                        hash_found = True
+                        if(row[1]==1):
+                            emb_embbed_tittle = "Nombre encontrado y confirmado"
+                            text_in_footer = "Confirmado por " + tmp_user_DBid[0][0] + text_in_footer[text_in_footer.index('|')-1:]
+                            emb_color = 1425173
+                        else:
+                            emb_embbed_tittle = "Nombre no encontrado. Pero aquí una imagen parecida:"
+                            text_in_footer = "Denegado por " + tmp_user_DBid[0][0] + text_in_footer[text_in_footer.index('|')-1:]
+                            emb_color = 15597568
+
                 # Create Webhook
-                embed_to_send = discord.Embed(description=emb_description, colour=emb_color, title= emb_embbed_tittle).set_footer(text="Porcentaje de seguridad: " + str(emb_similarity)+ "% | Pedido por: "+ emb_user)
+                embed_to_send = discord.Embed(description=emb_description, colour=emb_color, title= emb_embbed_tittle).set_footer(text=text_in_footer)
                 if emb_preview != "":
                     emb_preview_file = requests.get(emb_preview)
                     if emb_preview_file.status_code == 200:
@@ -721,8 +794,9 @@ async def on_message(msg):
                 embed_sent = await msg.channel.send(embed=embed_to_send)
 
                 # También una reacción para buscar con TraceMOE, si es que si funcionó, pero el usuario quiere video
-                await embed_sent.add_reaction("✅")
-                await embed_sent.add_reaction("❌")
+                if not hash_found:
+                    await embed_sent.add_reaction("✅")
+                    await embed_sent.add_reaction("❌")
                 await embed_sent.add_reaction("🎦")
 
             else:  
@@ -734,38 +808,40 @@ async def on_message(msg):
                     await msg.add_reaction("➖")
                 else:
                     await msg.add_reaction("❌")
-        
-            print("PIL Operations")
-            pil_image = Image.open(imageData)
-            image_hash = str(imagehash.phash(pil_image,16))
-            pil_image.save("temp_images/"+image_hash+".png")
+            if not hash_found:
+                print("PIL Operations")
+                pil_image = Image.open(imageData)
+                image_hash = str(imagehash.phash(pil_image,16))
+                pil_image.save("temp_images/"+image_hash+".png")
 
-            with open("out.txt", "wb") as outfile:
-                # Copy the BytesIO stream to the output file
-                outfile.write(imageData.getbuffer())
-            imageData.close()
+                with open("out.txt", "wb") as outfile:
+                    # Copy the BytesIO stream to the output file
+                    outfile.write(imageData.getbuffer())
+                imageData.close()
 
 
             print("SQL Operations")
-            mySQL_query = "SELECT ID FROM eldoBOT_DB.USER WHERE USER_ID="+str(msg.author.id)+";"
+            mySQL_query = "SELECT ID FROM "+DB_NAME+".USER WHERE USER_ID="+str(msg.author.id)+";"
             mycursor.execute(mySQL_query)
             tmp_user_DBid = mycursor.fetchall()
             if(mycursor.rowcount==0):
                 tmp_user_DBid = addUserToDB(msg.author)
             else:
                 tmp_user_DBid = tmp_user_DBid[0][0]
-            mySQL_query = "SELECT ID FROM eldoBOT_DB.GUILD WHERE GUILD_ID="+str(msg.guild.id)+";"
-            mycursor.execute(mySQL_query)
-            tmp_guild_DBid = mycursor.fetchall()[0][0]
-
-            mySQL_query = "INSERT INTO "+DB_NAME+".NAME_IMAGE (HASH, URL, FILE_NAME, EXTENSION, GUILD_THAT_ASKED, USER_THAT_ASKED) VALUES (%s, %s, %s, %s, %s, %s) "
-            mycursor.execute(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
-            mydb.commit()
-            global messages_to_react
             
-            # Change this if you want to read reactions from failed searches (TODO)
-            if embed_sent!=None:
-                messages_to_react.append([embed_sent,mycursor.lastrowid,tmp_msg_image_url])
+            if not hash_found:
+                mySQL_query = "SELECT ID FROM "+DB_NAME+".GUILD WHERE GUILD_ID="+str(msg.guild.id)+";"
+                mycursor.execute(mySQL_query)
+                tmp_guild_DBid = mycursor.fetchall()[0][0]
+
+                mySQL_query = "INSERT INTO "+DB_NAME+".NAME_IMAGE (HASH, URL, FILE_NAME, EXTENSION, GUILD_THAT_ASKED, USER_THAT_ASKED) VALUES (%s, %s, %s, %s, %s, %s) "
+                mycursor.execute(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
+                mydb.commit()
+                global messages_to_react
+
+                # Change this if you want to read reactions from failed searches (TODO)
+                if embed_sent!=None:
+                    messages_to_react.append([embed_sent,mycursor.lastrowid,tmp_msg_image_url])
 
     async def testTraceMoe():
         if len(msg.attachments)>0:
@@ -955,8 +1031,7 @@ async def on_message(msg):
         await msg.delete()
 
         msg_to_say = msg_to_say.replace("e!bot ","",1)
-        msg_to_say = msg_to_say.replace("@everyone","")
-        msg_to_say = msg_to_say.replace("@here","")
+        msg_to_say = discord.utils.escape_mentions(msg_to_say)
         webhook_discord = await tmp_channel.create_webhook(name=tmp_author, avatar=pfp_to_imitate, reason="EldoBOT: Temp-webhook")
         await webhook_discord.send(content = msg_to_say, username = tmp_author)#, allowed_mentions = allowed_mentions_NONE)
         # Delete webhook
@@ -1029,8 +1104,7 @@ async def on_message(msg):
             tmp_author = "Usuario Anónimo"
 
         msg_to_say = msg_to_say.replace("e!anon ","",1)
-        msg_to_say = msg_to_say.replace("@everyone","")
-        msg_to_say = msg_to_say.replace("@here","")
+        msg_to_say = discord.utils.escape_mentions(msg_to_say)
         webhook_discord = await tmp_channel.create_webhook(name=tmp_author, reason="EldoBOT: Temp-webhook Usuario-anónimo")
         await webhook_discord.send(content = msg_to_say, username = tmp_author, avatar_url = tmp_avatar)#, allowed_mentions = allowed_mentions_NONE)
         # Delete webhook
@@ -1063,8 +1137,7 @@ async def on_message(msg):
             msg_to_say = tmp_clean_msg[tmp_clean_msg.find(msg_to_say[2:4]):] # WTF, porque?? Shhh
 
         # Solución temporal
-        msg_to_say = msg_to_say.replace("@everyone","every**nyan**")
-        msg_to_say = msg_to_say.replace("@here","nope")
+        msg_to_say = discord.utils.escape_mentions(msg_to_say)
 
         user_to_imitate = client.get_user(int(user_ID_to_imitate))
         if(user_to_imitate != None):
@@ -1244,7 +1317,7 @@ async def on_message(msg):
     if msg.content.lower().find("spoiler") != -1:
         await command_spoiler()
     elif msg.content.lower().find("name") != -1:
-            await new_find_name(msg)
+        await new_find_name(msg)
     elif msg.content.lower().find("nombre") != -1:
         await command_name()
 
