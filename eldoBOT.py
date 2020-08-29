@@ -27,6 +27,7 @@ matplotlib.use('Agg')
 from tracemoe import TraceMoe
 from datetime import datetime
 import imagehash # Image fingerprinting
+import urllib.parse # Convert URL
 
 # TraceMOE Limits:
 #   10 searches per minute
@@ -355,8 +356,114 @@ async def debugTraceMoe(image_to_search_URL="",msg=None):
         if((response["docs"][0]["similarity"]*100.0)<91):
             await msg.channel.send(content="<@597235650361688064> Es posible que esta respuesta sea erronea, puedes venir a confirmar?")
 
+def dbUserID_to_discordIDNameImage(id):
+    mySQL_query = "SELECT USER_ID, USERNAME, IMAGE_URL FROM "+DB_NAME+".USER WHERE ID="+str(id)+";"
+    mycursor.execute(mySQL_query)
+    tmp_user_DB = mycursor.fetchall()
+    if (mycursor.rowcount==0):
+        return None
+    else:
+        return tmp_user_DB[0]
 
-# Lee el tipo de reacción. Si es positiva (y viene de un miembro nivel +3), aceptalo y actualiza la DB
+def addUserToDB(author):
+    mySQL_query = "INSERT INTO " + DB_NAME + ".USER (USER_ID ,USERNAME, IMAGE_URL) VALUES (%s, %s, %s);"
+    mycursor.execute(mySQL_query, (str(author.id), unidecode(author.name).replace(
+        "DROP", "DRO_P").replace("drop", "dro_p").replace("*", "+"), # Lame&unnecesary SQL-Injection protection
+        str(author.avatar_url)[:str(author.avatar_url).find("?")]))
+    mydb.commit()
+    return mycursor.lastrowid
+
+def discordID_to_dbUserID(id,author=None):
+    mySQL_query = "SELECT ID FROM "+DB_NAME+".USER WHERE USER_ID="+str(id)+";"
+    mycursor.execute(mySQL_query)
+    tmp_user_DBid = mycursor.fetchall()
+    if(mycursor.rowcount==0):
+        if author!=None:
+            return addUserToDB(author)
+        else:
+            return None
+    else:
+        return tmp_user_DBid[0][0]
+
+# It get's called when the user wants to send the name of an image that wasn't found by the bot
+# It sends and Embed message with the information that the user gaves us, and it saves it on our DB
+async def userNameHelper(msg, id, user_text):
+    # Get User ID
+    mySQL_query = "SELECT FOUND, URL, CONFIRMED_BY FROM "+DB_NAME + \
+        ".NAME_IMAGE WHERE ID="+id+";"
+    mycursor.execute(mySQL_query)
+    tmp_user_DBid = mycursor.fetchall()
+    if(mycursor.rowcount==0):
+        await msg.channel.send(content="No pudimos encontrar la id "+id+" en nuestra base de datos. Si crees que esto es un error, menciona a mi creador @Eldoprano",delete_after=20)
+    elif(tmp_user_DBid[0][0]==1):
+        user_that_confirmed = dbUserID_to_discordIDNameImage(tmp_user_DBid[0][2])[1]
+        if(user_that_confirmed != None):
+            await msg.channel.send(content="Esta imagen ya fué aceptada como encontrada por: "+user_that_confirmed,delete_after=20)
+        else:
+            print("Error, user "+tmp_user_DBid[0][2]+" doesn't exist")
+    else:
+        image_url=None
+        if len(msg.attachments) > 0:
+            image_url = msg.attachments[0].url
+
+        # Update status of image
+        db_author_id = discordID_to_dbUserID(msg.author.id, msg.author)
+
+        mySQL_query = "UPDATE "+DB_NAME+".NAME_IMAGE SET FOUND=1, FOUND_BY_BOT=0, CONFIRMED_BY=%s \
+            WHERE ID="+id+";"
+        mycursor.execute(mySQL_query, (str(db_author_id),))
+        mydb.commit()
+
+        # Create a Name Result
+        if image_url==None:
+            mySQL_query = "INSERT INTO "+DB_NAME+".NAME_RESULT (USER_THAT_FOUND, TEXT) VALUES (%s, %s) "
+            mycursor.execute(mySQL_query, (str(db_author_id), user_text, ))
+            mydb.commit()
+        else:
+            mySQL_query = "INSERT INTO "+DB_NAME+".NAME_RESULT (USER_THAT_FOUND, TEXT, IMAGE_LINK) VALUES (%s, %s, %s) "
+            mycursor.execute(mySQL_query, (str(db_author_id), user_text, image_url))
+            mydb.commit()
+        
+        name_result_id = mycursor.lastrowid
+
+        # Link Name Result with Name Image
+        mySQL_query = "INSERT INTO "+DB_NAME+".NAME_LOG (IMAGE_ID, NAME_ID) VALUES (%s, %s) "
+        mycursor.execute(mySQL_query, (id, name_result_id))
+        mydb.commit()
+
+        # Create and send final Embedded
+        if image_url==None:
+            embed_to_send = discord.Embed(description=user_text, color=1425173).set_author(
+                name=msg.author.name, icon_url=str(msg.author.avatar_url)).set_thumbnail(url = tmp_user_DBid[0][1])
+        else:
+            embed_to_send = discord.Embed(description=user_text, color=1425173).set_author(
+                name=msg.author.name, icon_url=str(msg.author.avatar_url)).set_thumbnail(url = tmp_user_DBid[0][1]).set_image(url = image_url)
+
+        await msg.channel.send(embed=embed_to_send)
+        await msg.delete()
+
+    
+
+# Outputs an Embed Discord message with usefull links to find the searched image
+def embedSearchHelper(url, idOfName = ""):
+    url = urllib.parse.quote(url)
+    yandex_url = "https://yandex.com/images/search?url="+url+"&rpt=imageview"
+    google_url = "https://www.google.com/searchbyimage?image_url="+url
+    tinyEYE_url = "https://www.tineye.com/search/?url="+url
+    imageOPS_url = "http://imgops.com/"+url
+    return (
+        discord.Embed(title="Links de búsqueda:",description="Aquí algunos links que te ayudarán a encontrar tu imagen. Suerte en tu búsqueda!",color=2190302)
+        .add_field(name="Yandex:", value="Es muy probable que aquí logres encontrar lo que buscas [link]("+yandex_url+").", inline=False)
+        .add_field(name="Google:", value="De vez en cuando Google te ayudará a encontrarlo [link]("+google_url+").", inline=True)
+        .add_field(name="tinyEYE:", value="También puedes probar tu suerte con TinyEYE [link]("+tinyEYE_url+").", inline=True)
+        .add_field(name="No lograste encontrarlo?", value="En esta página puedes encontrar otras páginas más que te pueden ayudar con tu búsqueda [link]("+imageOPS_url+").", inline=False)
+        .add_field(name="Lograste encontrar la imagen?", value="Lograste encontrar la imágen? Puedes ayudar a mejorar el bot enviando el nombre de la imagen con el comando:\n **e!id"\
+            +str(idOfName)+"** *La imagen es del autor/anime...* \n[Si quieres también puedes adjuntar una imagen]", inline=True)
+    )
+
+
+
+# Lee el tipo de reacción. Si es positiva (y viene de un miembro nivel +6), aceptalo y actualiza la DB
 # Si es negativa, busca con TraceMOE y pregunta de nuevo todo esto (eliminando la fallida)
 # Si es también negativa, ábrelo a los usuarios
 @client.event
@@ -379,7 +486,7 @@ async def on_raw_reaction_add(payload):
     for element in list_of_messages:
         list_of_message_IDs.append(str(element.id))
 
-    def change_embed_dic(dictionary,confirmed,user_that_confirmed):
+    def change_embed_dic(dictionary,confirmed,user_that_confirmed,idOfName=None):
         if confirmed:
             dictionary["color"]=1425173
             dictionary["title"] = "Confirmamos, nombre encontrado!"
@@ -388,8 +495,10 @@ async def on_raw_reaction_add(payload):
         else:
             dictionary["color"] = 15597568
             dictionary["title"] = "Mission failed, we'll get em next time"
-            dictionary["footer"]["text"] = "Negado por " + \
-                user_that_confirmed + dictionary["footer"]["text"][dictionary["footer"]["text"].index('|')-1:]
+            dictionary["description"] = "~~" + dictionary["description"] + "~~\n\nEsta respuesta fué marcada como incorrecta, pero puedes intentar buscarla por ti mism@ reaccionando al 🔎\n"
+            dictionary["description"] += "Lograste encontrar la imágen? Puedes ayudar a mejorar el bot enviando el nombre de la imagen con el comando:\n"
+            dictionary["description"] += "**e!id"+str(idOfName)+"** *La imagen es del autor/anime...* \n[Si quieres también puedes adjuntar una imagen]"
+            dictionary["footer"]["text"] = "Negado por " + user_that_confirmed + dictionary["footer"]["text"][dictionary["footer"]["text"].index('|')-1:]
         return discord.Embed.from_dict(dictionary)
 
     if str(payload.message_id) in list_of_message_IDs and payload.event_type == "REACTION_ADD":
@@ -406,6 +515,11 @@ async def on_raw_reaction_add(payload):
             for reaction in the_reactions:
                 await reaction.remove(author_of_reaction)
             return
+
+        if (author_of_reaction.nick==None):
+            member_name = author_of_reaction.name
+        else:
+            member_name = author_of_reaction.nick
         if payload.emoji.name == "✅":
             print("Sending good news to DB")
             # Get User ID
@@ -426,7 +540,7 @@ async def on_raw_reaction_add(payload):
             messages_to_react.pop(list_of_message_IDs.index(str(payload.message_id)))
             # Show who confirmed to be true
             embed_message = list_of_messages[list_of_message_IDs.index(str(payload.message_id))].embeds[0]
-            embed_message = change_embed_dic(embed_message.to_dict(),True,str(author_of_reaction))
+            embed_message = change_embed_dic(embed_message.to_dict(),True,member_name)
             await list_of_messages[list_of_message_IDs.index(str(payload.message_id))].edit(embed = embed_message)
 
         elif payload.emoji.name == "❌":
@@ -449,7 +563,8 @@ async def on_raw_reaction_add(payload):
             messages_to_react.pop(list_of_message_IDs.index(str(payload.message_id)))
             # Show who confirmed to be true
             embed_message = list_of_messages[list_of_message_IDs.index(str(payload.message_id))].embeds[0]
-            embed_message = change_embed_dic(embed_message.to_dict(),False,str(author_of_reaction))
+            embed_message = change_embed_dic(
+                embed_message.to_dict(), False, member_name,list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])
             await list_of_messages[list_of_message_IDs.index(str(payload.message_id))].edit(embed = embed_message)
 
         elif payload.emoji.name == "🎦":
@@ -458,6 +573,19 @@ async def on_raw_reaction_add(payload):
             await debugTraceMoe(list_of_image_URL[list_of_message_IDs.index(str(payload.message_id))],message_of_reaction)
             # Remove message from list, so users don't call the command multiple times
             messages_to_react.pop(list_of_message_IDs.index(str(payload.message_id)))
+
+        elif payload.emoji.name == "✖":
+            channel_of_reaction = guild_of_reaction.get_channel(payload.channel_id)
+            message_of_reaction = await channel_of_reaction.fetch_message(payload.message_id)
+            
+        
+        elif payload.emoji.name == "🔎":
+            mySQL_query = "SELECT URL FROM "+DB_NAME+".NAME_IMAGE WHERE ID="+str(list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])+";"
+            mycursor.execute(mySQL_query)
+            url_to_search = mycursor.fetchall()
+            url_to_search = url_to_search[0][0]
+            embedHelper = embedSearchHelper(url_to_search,list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])
+            await list_of_messages[list_of_message_IDs.index(str(payload.message_id))].channel.send(embed=embedHelper)
 
 
 @client.event
@@ -476,14 +604,6 @@ async def on_raw_reaction_add(payload):
         msg = await channel.fetch_message(payload.message_id)
         await new_find_name(msg)
 """
-
-def addUserToDB(author):
-    mySQL_query = "INSERT INTO " + DB_NAME + ".USER (USER_ID ,USERNAME, IMAGE_URL) VALUES (%s, %s, %s);"
-    mycursor.execute(mySQL_query, (str(author.id), unidecode(author.name).replace(
-        "DROP", "DRO_P").replace("drop", "dro_p").replace("*", "+"), # Lame&unnecesary SQL-Injection protection
-        str(author.avatar_url)[:str(author.avatar_url).find("?")]))
-    mydb.commit()
-    return mycursor.lastrowid
 
 temp_busquedas = True
 @client.event
@@ -612,6 +732,61 @@ async def on_message(msg):
         imageData = io.BytesIO()
         image_to_search.save(imageData,format='PNG')
         text_ready = False
+
+        # Check if it was already confirmed by a user
+        hash_found = False
+        mySQL_query = "SELECT HASH, FOUND, CONFIRMED_BY, FOUND_BY_BOT, ID FROM " + \
+            DB_NAME+".NAME_IMAGE WHERE CONFIRMED_BY IS NOT NULL;"
+        mycursor.execute(mySQL_query)
+        sql_result = mycursor.fetchall()
+        pil_image = Image.open(imageData)
+        image_hash = imagehash.phash(pil_image,16)
+        for row in sql_result:
+            received_hash = imagehash.hex_to_hash(row[0])
+            if received_hash-image_hash < 40:
+                print("A Hash was found!")
+                if(row[3]==0 and row[1]==1):
+                    mySQL_query = "SELECT NAME_RESULT.USER_THAT_FOUND, NAME_RESULT.TEXT, NAME_RESULT.IMAGE_LINK, NAME_IMAGE.URL "
+                    mySQL_query += "FROM eldoBOT_DB.NAME_IMAGE INNER JOIN (NAME_RESULT INNER JOIN NAME_LOG on "
+                    mySQL_query += "NAME_RESULT.ID=NAME_LOG.NAME_ID) ON NAME_LOG.IMAGE_ID = NAME_IMAGE.ID "
+                    mySQL_query += "WHERE NAME_IMAGE.ID = %s ORDER BY NAME_RESULT.DATE DESC;"
+                    mycursor.execute(mySQL_query,(row[4],))
+                    tmp_user_DBid = mycursor.fetchall()
+                    if mycursor.rowcount==0:
+                        print("Huston, we have a problem with the HASH/USERMADE search")
+                        continue
+                    author_name = dbUserID_to_discordIDNameImage(tmp_user_DBid[0][0])
+                    author_image= author_name[2]
+                    author_name = author_name[1]
+                    if(tmp_user_DBid[0][2]!=None):
+                        embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=1425173).set_author(
+                            name=author_name, icon_url=author_image).set_thumbnail(url = tmp_user_DBid[0][3]).set_image(url = tmp_user_DBid[0][2])
+                    else:
+                        embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=1425173).set_author(
+                            name=author_name, icon_url=author_image).set_thumbnail(url = tmp_user_DBid[0][3])
+                    
+                    await msg.channel.send(embed=embed_to_send)
+                    return
+
+                elif(row[3]==1):
+                    mySQL_query = "SELECT USERNAME FROM "+DB_NAME+".USER WHERE ID="+str(row[2])+";"
+                    mycursor.execute(mySQL_query)
+                    tmp_user_DBid = mycursor.fetchall()
+
+                    hash_found = True
+                    if(row[1]==1):
+                        emb_embbed_tittle = "Nombre encontrado y confirmado"
+                        text_in_footer = "Confirmado por " + tmp_user_DBid[0][0]
+                        emb_color = 1425173
+                    else:
+                        emb_embbed_tittle = "Nombre no encontrado. Pero aquí una imagen parecida:"
+                        text_in_footer = "Denegado por " + tmp_user_DBid[0][0]
+                        emb_color = 15597568
+                
+                else:
+                    print("Some strange things are happening with our DB")
+
+        
 
         # Variables for the Embedded message:
         emb_similarity = ""
@@ -745,42 +920,21 @@ async def on_message(msg):
 
                 emb_description += "**Encontrado en: **"+emb_index_saucenao+"\n"
 
-                if emb_similarity > 89:
-                    emb_color = 1425173  # A nice green
-                    emb_embbed_tittle = "Nombre encontrado!"
-                elif emb_similarity > 73:
-                    emb_color = 16776960 # An insecure yellow
-                    emb_embbed_tittle = "Nombre quizás encontrado!"
+                if not hash_found:
+                    if emb_similarity > 89:
+                        emb_color = 1425173  # A nice green
+                        emb_embbed_tittle = "Nombre encontrado!"
+                    elif emb_similarity > 73:
+                        emb_color = 16776960 # An insecure yellow
+                        emb_embbed_tittle = "Nombre quizás encontrado!"
+                    else:
+                        emb_color = 15597568 # A worrying red
+                        emb_embbed_tittle = "Nombre probablemente encontrado!"
+
+                    text_in_footer = "Porcentaje de seguridad: " + str(emb_similarity)+ "% | Pedido por: "+ emb_user
                 else:
-                    emb_color = 15597568 # A worrying red
-                    emb_embbed_tittle = "Nombre probablemente encontrado!"
-
-                text_in_footer = "Porcentaje de seguridad: " + str(emb_similarity)+ "% | Pedido por: "+ emb_user
+                    text_in_footer += " | Pedido por: "+ emb_user
                 
-                # Check if it was already confirmed by a user
-                hash_found = False
-                mySQL_query = "SELECT HASH, FOUND, CONFIRMED_BY FROM " + \
-                    DB_NAME+".NAME_IMAGE WHERE CONFIRMED_BY IS NOT NULL;"
-                mycursor.execute(mySQL_query)
-                sql_result = mycursor.fetchall()
-                pil_image = Image.open(imageData)
-                image_hash = imagehash.phash(pil_image,16)
-                for row in sql_result:
-                    received_hash = imagehash.hex_to_hash(row[0])
-                    if received_hash-image_hash < 40:
-                        mySQL_query = "SELECT USERNAME FROM "+DB_NAME+".USER WHERE ID="+str(row[2])+";"
-                        mycursor.execute(mySQL_query)
-                        tmp_user_DBid = mycursor.fetchall()
-
-                        hash_found = True
-                        if(row[1]==1):
-                            emb_embbed_tittle = "Nombre encontrado y confirmado"
-                            text_in_footer = "Confirmado por " + tmp_user_DBid[0][0] + text_in_footer[text_in_footer.index('|')-1:]
-                            emb_color = 1425173
-                        else:
-                            emb_embbed_tittle = "Nombre no encontrado. Pero aquí una imagen parecida:"
-                            text_in_footer = "Denegado por " + tmp_user_DBid[0][0] + text_in_footer[text_in_footer.index('|')-1:]
-                            emb_color = 15597568
 
                 # Create Webhook
                 embed_to_send = discord.Embed(description=emb_description, colour=emb_color, title= emb_embbed_tittle).set_footer(text=text_in_footer)
@@ -798,6 +952,7 @@ async def on_message(msg):
                     await embed_sent.add_reaction("✅")
                     await embed_sent.add_reaction("❌")
                 await embed_sent.add_reaction("🎦")
+                await embed_sent.add_reaction("🔎")
 
             else:  
                 if float(similarity_of_result)>75:
@@ -807,7 +962,15 @@ async def on_message(msg):
                         writer.write(str(result_data))
                     await msg.add_reaction("➖")
                 else:
-                    await msg.add_reaction("❌")
+                    emb_preview_file = await msg.attachments[0].read()
+                    tmp_msg = await channel_logs.send(content="temp_file. Este es una imagen que fallamos en encontrar con el bot", file=discord.File(BytesIO(emb_preview_file), filename="eldoBOT_ha_fallado.png"))
+                    tmp_msg_image_url = tmp_msg.attachments[0].url
+
+                    await msg.add_reaction("✖")
+                    await msg.add_reaction("🔎")
+                    tmp_msg_image_url = tmp_msg.attachments[0].url
+                    embed_sent = msg
+
             if not hash_found:
                 print("PIL Operations")
                 pil_image = Image.open(imageData)
@@ -840,8 +1003,7 @@ async def on_message(msg):
                 global messages_to_react
 
                 # Change this if you want to read reactions from failed searches (TODO)
-                if embed_sent!=None:
-                    messages_to_react.append([embed_sent,mycursor.lastrowid,tmp_msg_image_url])
+                messages_to_react.append([embed_sent,mycursor.lastrowid,tmp_msg_image_url])
 
     async def testTraceMoe():
         if len(msg.attachments)>0:
@@ -1323,7 +1485,10 @@ async def on_message(msg):
 
     if msg_received[:2]==activator:
         msg_command = msg_received[2:]
-        if  msg_command.find("emoji_stats")==0 and msg.author.permissions_in(msg.channel).kick_members:
+        if msg_command.split()[0][:2]=="id" and msg_command.split()[0][2:].isnumeric() and len(msg_command.split())>1:
+            await userNameHelper(msg = msg,id = msg_command.split()[0][2:], user_text = msg_command[msg_command.find(" "):])
+            statsAdd("help-name")
+        elif  msg_command.find("emoji_stats")==0 and msg.author.permissions_in(msg.channel).kick_members:
             statsAdd("emoji_stats")
             await command_emoji_stats()
         elif msg_command == "help" or msg_command == "ayuda":
