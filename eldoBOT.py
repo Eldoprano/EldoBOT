@@ -80,6 +80,7 @@ except Exception as e:
 
 channel_logs=0
 messages_to_react = []
+status_messages_to_react = []
 
 # Notes:
 # Hey!! Add https://soruly.github.io/trace.moe/#/ to your bot! It has an easy to use API, and nice limits
@@ -353,8 +354,6 @@ async def debugTraceMoe(image_to_search_URL="",msg=None):
         msg_to_send = "Estoy {}% seguro de que la imágen es de un {} del año {} llamado **\"{}\"** , episodio {}.".format(simmilarityOfAnime,typeOfAnime,seasonOfAnime,nameOfAnime,episodeOfAnime)
 
         await msg.channel.send(content = msg_to_send,file = fileToSend)
-        if((response["docs"][0]["similarity"]*100.0)<91):
-            await msg.channel.send(content="<@597235650361688064> Es posible que esta respuesta sea erronea, puedes venir a confirmar?")
 
 def dbUserID_to_discordIDNameImage(id):
     mySQL_query = "SELECT USER_ID, USERNAME, IMAGE_URL FROM "+DB_NAME+".USER WHERE ID="+str(id)+";"
@@ -368,7 +367,7 @@ def dbUserID_to_discordIDNameImage(id):
 def addUserToDB(author):
     mySQL_query = "INSERT INTO " + DB_NAME + ".USER (USER_ID ,USERNAME, IMAGE_URL) VALUES (%s, %s, %s);"
     mycursor.execute(mySQL_query, (str(author.id), unidecode(author.name).replace(
-        "DROP", "DRO_P").replace("drop", "dro_p").replace("*", "+"), # Lame&unnecesary SQL-Injection protection
+        "DROP", "DRO_P").replace("drop", "dro_p")[:32].replace("*", "+"), # Lame&unnecesary SQL-Injection protection
         str(author.avatar_url)[:str(author.avatar_url).find("?")]))
     mydb.commit()
     return mycursor.lastrowid
@@ -384,6 +383,52 @@ def discordID_to_dbUserID(id,author=None):
             return None
     else:
         return tmp_user_DBid[0][0]
+
+def discordGuildID_to_dbGuildID(id):
+    mySQL_query = "SELECT ID FROM "+DB_NAME+".GUILD WHERE GUILD_ID="+str(id)+";"
+    mycursor.execute(mySQL_query)
+    tmp_guild_DBid = mycursor.fetchall()
+    if(mycursor.rowcount==0):
+        return None
+    else:
+        return tmp_guild_DBid[0][0]
+
+async def userNameAdd(msg, user_text):
+    if len(msg.attachments) == 0:
+        await msg.channel.send(content="Tienes que enviar una imagen junto a este comando",delete_after=7)
+
+    imageData = await msg.attachments[0].read()
+    imageData = BytesIO(imageData)
+    pil_image = Image.open(imageData)
+    image_hash = str(imagehash.phash(pil_image,16))
+    pil_image.save("temp_images/"+image_hash+".png")
+
+    with open("out.txt", "wb") as outfile:
+        # Copy the BytesIO stream to the output file
+        outfile.write(imageData.getbuffer())
+    imageData.close()
+
+    discord_user_id = str(discordID_to_dbUserID(msg.author.id))
+    discord_guild_id = str(discordGuildID_to_dbGuildID(msg.guild.id))
+
+    mySQL_query = "INSERT INTO "+DB_NAME+".NAME_IMAGE (HASH, URL, FILE_NAME, EXTENSION, GUILD_THAT_ASKED, USER_THAT_ASKED, FOUND, FOUND_BY_BOT, CONFIRMED_BY) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+    mycursor.execute(mySQL_query, (image_hash, str(msg.attachments[0].url),"HASH.png", "png", discord_guild_id, discord_user_id,"1","0",discord_user_id,))
+    mydb.commit()
+    name_image_id = mycursor.lastrowid
+
+    mySQL_query = "INSERT INTO "+DB_NAME+".NAME_RESULT (USER_THAT_FOUND, TEXT) VALUES (%s, %s) "
+    mycursor.execute(mySQL_query, (discord_user_id, user_text, ))
+    mydb.commit()
+    name_result_id = mycursor.lastrowid
+
+    # Link Name Result with Name Image
+    mySQL_query = "INSERT INTO "+DB_NAME+".NAME_LOG (IMAGE_ID, NAME_ID) VALUES (%s, %s) "
+    mycursor.execute(mySQL_query, (name_image_id, name_result_id))
+    mydb.commit()
+
+    await msg.channel.send(content="Imágen añadida!",delete_after=7)
+
+
 
 # It get's called when the user wants to send the name of an image that wasn't found by the bot
 # It sends and Embed message with the information that the user gaves us, and it saves it on our DB
@@ -457,13 +502,13 @@ def embedSearchHelper(url, idOfName = ""):
         .add_field(name="Google:", value="De vez en cuando Google te ayudará a encontrarlo [link]("+google_url+").", inline=True)
         .add_field(name="tinyEYE:", value="También puedes probar tu suerte con TinyEYE [link]("+tinyEYE_url+").", inline=True)
         .add_field(name="No lograste encontrarlo?", value="En esta página puedes encontrar otras páginas más que te pueden ayudar con tu búsqueda [link]("+imageOPS_url+").", inline=False)
-        .add_field(name="Lograste encontrar la imagen?", value="Lograste encontrar la imágen? Puedes ayudar a mejorar el bot enviando el nombre de la imagen con el comando:\n **e!id"\
-            +str(idOfName)+"** *La imagen es del autor/anime...* \n[Si quieres también puedes adjuntar una imagen]", inline=True)
+        .add_field(name="Lograste encontrar la imagen?", value="Puedes ayudar a mejorar el bot enviando el nombre de la imagen con el comando:\n\n `e!id"\
+            +str(idOfName)+"` *La imagen es del autor/anime...* \n\n[Si quieres también puedes adjuntar una imagen]", inline=True)
     )
 
 
 
-# Lee el tipo de reacción. Si es positiva (y viene de un miembro nivel +6), aceptalo y actualiza la DB
+# Lee el tipo de reacción. Si es positiva (y viene de un miembro nivel +3), aceptalo y actualiza la DB
 # Si es negativa, busca con TraceMOE y pregunta de nuevo todo esto (eliminando la fallida)
 # Si es también negativa, ábrelo a los usuarios
 @client.event
@@ -472,6 +517,9 @@ async def on_raw_reaction_add(payload):
     list_of_messages = list(zip(*messages_to_react))
     if len(list_of_messages)==0:
         return
+    # Message Status (0=No action -1=video,no action 1=action,no video 2=delete)
+    global status_messages_to_react
+
     # URL of image
     list_of_image_URL = list_of_messages[2]
 
@@ -483,6 +531,7 @@ async def on_raw_reaction_add(payload):
 
     # IDs from the messages
     list_of_message_IDs=[]
+
     for element in list_of_messages:
         list_of_message_IDs.append(str(element.id))
 
@@ -502,16 +551,18 @@ async def on_raw_reaction_add(payload):
         return discord.Embed.from_dict(dictionary)
 
     if str(payload.message_id) in list_of_message_IDs and payload.event_type == "REACTION_ADD":
+        position_to_change = list_of_message_IDs.index(str(payload.message_id))
+        actual_status = status_messages_to_react[position_to_change]
         if payload.user_id == 702233706240278579: # eldoBOT
             return
         guild_of_reaction = client.get_guild(payload.guild_id)
         author_of_reaction = await guild_of_reaction.fetch_member(payload.user_id)
-        can_react = False
-        for rol in author_of_reaction.roles: # Eww, Hardcoded :P (>=lvl 6)
-            if(rol.id == 646136111634055178 or rol.name=="Godness"):
+        can_react = True # Now everyone can react
+        for rol in author_of_reaction.roles: # Eww, Hardcoded :P (>=lvl 3)
+            if(rol.id == 630560047872737320 or rol.name == "Godness" or payload.user_id == 597235650361688064):
                 can_react=True
         if not can_react:
-            the_reactions = list_of_messages[list_of_message_IDs.index(str(payload.message_id))].reactions
+            the_reactions = list_of_messages[position_to_change].reactions
             for reaction in the_reactions:
                 await reaction.remove(author_of_reaction)
             return
@@ -520,7 +571,7 @@ async def on_raw_reaction_add(payload):
             member_name = author_of_reaction.name
         else:
             member_name = author_of_reaction.nick
-        if payload.emoji.name == "✅":
+        if payload.emoji.name == "✅" and actual_status <= 0:
             print("Sending good news to DB")
             # Get User ID
             mySQL_query = "SELECT ID FROM "+DB_NAME+".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
@@ -533,17 +584,21 @@ async def on_raw_reaction_add(payload):
 
             # Update status of message
             mySQL_query = "UPDATE "+DB_NAME+".NAME_IMAGE SET FOUND=1, FOUND_BY_BOT=1, CONFIRMED_BY=%s \
-                WHERE ID="+str(list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])+";"
+                WHERE ID="+str(list_of_DB_ids[position_to_change])+";"
             mycursor.execute(mySQL_query,(tmp_user_DBid,))
             mydb.commit()
-            # Remove message from list, so users we just hear the opinion of the 1rst User
-            messages_to_react.pop(list_of_message_IDs.index(str(payload.message_id)))
+            # Change status or remove message from list
+            if(actual_status==-1):
+                messages_to_react.pop(position_to_change)
+                status_messages_to_react.pop(position_to_change)
+            else:
+                status_messages_to_react[position_to_change]=1
             # Show who confirmed to be true
-            embed_message = list_of_messages[list_of_message_IDs.index(str(payload.message_id))].embeds[0]
+            embed_message = list_of_messages[position_to_change].embeds[0]
             embed_message = change_embed_dic(embed_message.to_dict(),True,member_name)
-            await list_of_messages[list_of_message_IDs.index(str(payload.message_id))].edit(embed = embed_message)
+            await list_of_messages[position_to_change].edit(embed = embed_message)
 
-        elif payload.emoji.name == "❌":
+        elif payload.emoji.name == "❌" and actual_status <= 0:
             print("Sending bad news to DB")
             # Get User ID
             mySQL_query = "SELECT ID FROM "+DB_NAME+".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
@@ -556,23 +611,31 @@ async def on_raw_reaction_add(payload):
 
             # Update status of message
             mySQL_query = "UPDATE "+DB_NAME+".NAME_IMAGE SET FOUND_BY_BOT=0, CONFIRMED_BY=%s \
-                WHERE ID="+str(list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])+";"
+                WHERE ID="+str(list_of_DB_ids[position_to_change])+";"
             mycursor.execute(mySQL_query, (tmp_user_DBid,))
             mydb.commit()
-            # Remove message from list, so users we just hear the opinion of the 1rst User
-            messages_to_react.pop(list_of_message_IDs.index(str(payload.message_id)))
+            # Change status or remove message from list
+            if(actual_status==-1):
+                messages_to_react.pop(position_to_change)
+                status_messages_to_react.pop(position_to_change)
+            else:
+                status_messages_to_react[position_to_change]=1
             # Show who confirmed to be true
-            embed_message = list_of_messages[list_of_message_IDs.index(str(payload.message_id))].embeds[0]
+            embed_message = list_of_messages[position_to_change].embeds[0]
             embed_message = change_embed_dic(
-                embed_message.to_dict(), False, member_name,list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])
-            await list_of_messages[list_of_message_IDs.index(str(payload.message_id))].edit(embed = embed_message)
+                embed_message.to_dict(), False, member_name,list_of_DB_ids[position_to_change])
+            await list_of_messages[position_to_change].edit(embed = embed_message)
 
-        elif payload.emoji.name == "🎦":
+        elif payload.emoji.name == "🎦" and actual_status >= 0:
             channel_of_reaction = guild_of_reaction.get_channel(payload.channel_id)
             message_of_reaction = await channel_of_reaction.fetch_message(payload.message_id)
-            await debugTraceMoe(list_of_image_URL[list_of_message_IDs.index(str(payload.message_id))],message_of_reaction)
-            # Remove message from list, so users don't call the command multiple times
-            messages_to_react.pop(list_of_message_IDs.index(str(payload.message_id)))
+            await debugTraceMoe(list_of_image_URL[position_to_change],message_of_reaction)
+            # Change status or remove message from list
+            if(actual_status==1):
+                messages_to_react.pop(position_to_change)
+                status_messages_to_react.pop(position_to_change)
+            else:
+                status_messages_to_react[position_to_change]=-1
 
         elif payload.emoji.name == "✖":
             channel_of_reaction = guild_of_reaction.get_channel(payload.channel_id)
@@ -580,12 +643,12 @@ async def on_raw_reaction_add(payload):
             
         
         elif payload.emoji.name == "🔎":
-            mySQL_query = "SELECT URL FROM "+DB_NAME+".NAME_IMAGE WHERE ID="+str(list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])+";"
+            mySQL_query = "SELECT URL FROM "+DB_NAME+".NAME_IMAGE WHERE ID="+str(list_of_DB_ids[position_to_change])+";"
             mycursor.execute(mySQL_query)
             url_to_search = mycursor.fetchall()
             url_to_search = url_to_search[0][0]
-            embedHelper = embedSearchHelper(url_to_search,list_of_DB_ids[list_of_message_IDs.index(str(payload.message_id))])
-            await list_of_messages[list_of_message_IDs.index(str(payload.message_id))].channel.send(embed=embedHelper)
+            embedHelper = embedSearchHelper(url_to_search,list_of_DB_ids[position_to_change])
+            await list_of_messages[position_to_change].channel.send(embed=embedHelper)
 
 
 @client.event
@@ -741,9 +804,11 @@ async def on_message(msg):
         sql_result = mycursor.fetchall()
         pil_image = Image.open(imageData)
         image_hash = imagehash.phash(pil_image,16)
+        image_DB_id = None
         for row in sql_result:
             received_hash = imagehash.hex_to_hash(row[0])
             if received_hash-image_hash < 40:
+                image_DB_id = row[4]
                 print("A Hash was found!")
                 if(row[3]==0 and row[1]==1):
                     mySQL_query = "SELECT NAME_RESULT.USER_THAT_FOUND, NAME_RESULT.TEXT, NAME_RESULT.IMAGE_LINK, NAME_IMAGE.URL "
@@ -1001,9 +1066,15 @@ async def on_message(msg):
                 mycursor.execute(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
                 mydb.commit()
                 global messages_to_react
+                global status_messages_to_react
 
+                image_DB_id = mycursor.lastrowid
+                
+            if image_DB_id!=None:            
                 # Change this if you want to read reactions from failed searches (TODO)
-                messages_to_react.append([embed_sent,mycursor.lastrowid,tmp_msg_image_url])
+                messages_to_react.append([embed_sent,image_DB_id,tmp_msg_image_url])
+                status_messages_to_react.append(0)
+
 
     async def testTraceMoe():
         if len(msg.attachments)>0:
@@ -1412,7 +1483,7 @@ async def on_message(msg):
             # Add new emojis to database
             if(len(emojis_IDs)>0):
                 mySQL_query = "INSERT INTO "+DB_NAME+".EMOJI (EMOJI_ID, NAME, IMAGE_URL) VALUES (%s, %s, %s) "
-                records_to_insert = tuple(zip(emojis_IDs, emojis_call_names, emojis_image_URL))
+                records_to_insert = tuple(zip(emojis_IDs, emojis_call_names[:34], emojis_image_URL))
                 mycursor.executemany(mySQL_query,records_to_insert)
                 mydb.commit()
                 if(len(records_to_insert)>0):
@@ -1485,9 +1556,13 @@ async def on_message(msg):
 
     if msg_received[:2]==activator:
         msg_command = msg_received[2:]
+        msg_text = msg.content[2:]
         if msg_command.split()[0][:2]=="id" and msg_command.split()[0][2:].isnumeric() and len(msg_command.split())>1:
-            await userNameHelper(msg = msg,id = msg_command.split()[0][2:], user_text = msg_command[msg_command.find(" "):])
+            await userNameHelper(msg = msg,id = msg_command.split()[0][2:], user_text = msg_text[msg_text.find(" "):])
             statsAdd("help-name")
+        elif msg_command.split()[0]=="add" and len(msg_command.split())>1:
+            await userNameAdd(msg = msg, user_text = msg_text.replace("add",""))
+            statsAdd("add-name")
         elif  msg_command.find("emoji_stats")==0 and msg.author.permissions_in(msg.channel).kick_members:
             statsAdd("emoji_stats")
             await command_emoji_stats()
