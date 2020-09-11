@@ -5,6 +5,7 @@ import discord
 from discord import NotFound
 from dotenv import load_dotenv
 import requests
+from bs4 import BeautifulSoup
 import json
 from PIL import Image
 from io import BytesIO
@@ -81,6 +82,12 @@ except Exception as e:
 channel_logs=0
 messages_to_react = []
 status_messages_to_react = []
+
+# Load configurations from DB
+mySQL_query = "SELECT g.GUILD_ID, TAG FROM "+DB_NAME+".FORBIDDEN_TAGS f inner join  " + \
+    DB_NAME+".GUILD g on f.GUILD_ID=g.id;"
+mycursor.execute(mySQL_query)
+forbidden_tags = mycursor.fetchall()
 
 # Notes:
 # Hey!! Add https://soruly.github.io/trace.moe/#/ to your bot! It has an easy to use API, and nice limits
@@ -491,11 +498,12 @@ async def userNameHelper(msg, id, user_text):
 
 # Outputs an Embed Discord message with usefull links to find the searched image
 def embedSearchHelper(url, idOfName = ""):
+    unparsed_url = url
     url = urllib.parse.quote(url)
     yandex_url = "https://yandex.com/images/search?url="+url+"&rpt=imageview"
     google_url = "https://www.google.com/searchbyimage?image_url="+url
     tinyEYE_url = "https://www.tineye.com/search/?url="+url
-    imageOPS_url = "http://imgops.com/"+url
+    imageOPS_url = "http://imgops.com/"+unparsed_url
     return (
         discord.Embed(title="Links de búsqueda:",description="Aquí algunos links que te ayudarán a encontrar tu imagen. Suerte en tu búsqueda!",color=2190302)
         .add_field(name="Yandex:", value="Es muy probable que aquí logres encontrar lo que buscas [link]("+yandex_url+").", inline=False)
@@ -675,6 +683,16 @@ async def on_message(msg):
 
     # Ignore messages comming from a bot
     if msg.author.bot:
+        if msg.author.id==515386276543725568:
+            forbidden_tag_list = [tag[1] for tag in forbidden_tags if tag[0]==str(msg.guild.id)]
+            print(forbidden_tag_list)
+            print(forbidden_tags)
+            for embed in msg.embeds:
+                for field in embed.fields:
+                    if field.name.find("Tag")!=-1:
+                        for tag in forbidden_tag_list:
+                            if field.value.find(tag)!=-1:
+                                await msg.delete()
         return
 
     async def command_help():
@@ -1037,7 +1055,6 @@ async def on_message(msg):
                     embed_sent = msg
 
             if not hash_found:
-                print("PIL Operations")
                 pil_image = Image.open(imageData)
                 image_hash = str(imagehash.phash(pil_image,16))
                 pil_image.save("temp_images/"+image_hash+".png")
@@ -1048,7 +1065,6 @@ async def on_message(msg):
                 imageData.close()
 
 
-            print("SQL Operations")
             mySQL_query = "SELECT ID FROM "+DB_NAME+".USER WHERE USER_ID="+str(msg.author.id)+";"
             mycursor.execute(mySQL_query)
             tmp_user_DBid = mycursor.fetchall()
@@ -1077,8 +1093,9 @@ async def on_message(msg):
 
 
     async def testTraceMoe():
-        if len(msg.attachments)>0:
-            image_to_search_URL = msg.attachments[0].url
+        if len(msg.attachments)==0:
+            return
+        image_to_search_URL = msg.attachments[0].url
         tracemoe = TraceMoe()
         async with msg.channel.typing():
             response = tracemoe.search(
@@ -1344,15 +1361,34 @@ async def on_message(msg):
         await webhook_discord.delete()
         print("Confesión hecha!")
 
-    async def command_say_like():
-        msg_to_say = msg.content
+    async def send_msg_as(author,channel,content,embed=False,user_that_sent=None):
+        # Filter mentions out of the content
+        content = discord.utils.escape_mentions(content)
+        pfp_to_imitate = await author.avatar_url.read()
+
+        # Create a temporal Webhook to send the message
+        webhook_discord = await channel.create_webhook(name=author.name, avatar=pfp_to_imitate, reason="EldoBOT: Temp-webhook")
+        
+        # If we want to send it as an Embed (that shows who sent it) we go here
+        if embed and user_that_sent!=None:
+            embed_to_send = discord.Embed(description=content, colour=16761856).set_footer(text="Enviado por: " + str(user_that_sent.display_name))
+            await webhook_discord.send(embed = embed_to_send, username = author.display_name)
+        # If we just want to send it as a normal message, we go here
+        elif not embed:
+            await webhook_discord.send(content = content, username = author.display_name)
+        
+        print(content," Printed!")
+
+        # Delete webhook
+        await webhook_discord.delete()
+
+    async def command_say_like(msg):
+        msg_to_say = msg.clean_content
         tmp_content = msg.content
         tmp_channel = msg.channel
-        tmp_clean_msg = msg.clean_content
-        tmp_author = msg.author.display_name
-        try:
-            tmp_raw_mentions = msg.raw_mentions[0]
-        except: pass
+        tmp_author = msg.author
+        user_to_imitate = msg.mentions[0]
+
         # Delete message
         await msg.delete()
 
@@ -1363,27 +1399,12 @@ async def on_message(msg):
             msg_to_say = msg_to_say.replace("e!di como id:","")
             #msg_to_say = tmp_clean_msg[tmp_clean_msg.find(msg_to_say[2:4]):] # Ohtia! Que es esto?? Pos... no hace falta entenderlo :P
         else:
-            user_ID_to_imitate = str(tmp_raw_mentions)
             msg_to_say = msg_to_say.replace("e!di como","",1)
-            msg_to_say = msg_to_say.replace("<@"+user_ID_to_imitate+">","")
-            msg_to_say = msg_to_say.replace("<@!"+user_ID_to_imitate+">","")
-            msg_to_say = tmp_clean_msg[tmp_clean_msg.find(msg_to_say[2:4]):] # WTF, porque?? Shhh
+            msg_to_say = msg_to_say.replace("@"+user_to_imitate.nick,"",1)
+            #msg_to_say = tmp_clean_msg[tmp_clean_msg.find(msg_to_say[2:4]):] # WTF, porque?? Shhh
 
-        # Solución temporal
-        msg_to_say = discord.utils.escape_mentions(msg_to_say)
-
-        user_to_imitate = client.get_user(int(user_ID_to_imitate))
         if(user_to_imitate != None):
-            pfp_to_imitate = await user_to_imitate.avatar_url.read()
-
-            # Create Webhook
-            webhook_discord = await tmp_channel.create_webhook(name=user_to_imitate.name, avatar=pfp_to_imitate, reason="EldoBOT: Temp-webhook")
-            embed_to_send = discord.Embed(description=msg_to_say, colour=16761856).set_footer(text="Enviado por: " + tmp_author)
-            # Send message
-            await webhook_discord.send(embed = embed_to_send, username = user_to_imitate.display_name)#, allowed_mentions = allowed_mentions_NONE)
-            print(msg_to_say," Printed!")
-            # Delete webhook
-            await webhook_discord.delete()
+            await send_msg_as(author=user_to_imitate,channel=tmp_channel,content=msg_to_say,embed=True,user_that_sent=tmp_author)
         else:
             print("User: "+user_ID_to_imitate+" not found")
     
@@ -1461,7 +1482,6 @@ async def on_message(msg):
                     emojis_IDs.append(temp_emojiID)
                     temp_emoji = client.get_emoji(int(emojis_IDs[-1]))
                     if(temp_emoji==None):
-                        print(emojis_call_names[-1]+" emoji not found in the server. Adding it anyways")
                         emojis_image_URL.append("https://cdn.discordapp.com/emojis/"+str(emojis_IDs[-1])+".png")
                     else:
                         emojis_image_URL.append(str(temp_emoji.url))
@@ -1543,16 +1563,67 @@ async def on_message(msg):
             mycursor.executemany(mySQL_query,records_to_insert)
             mydb.commit()
 
+    def urlExtractor(text):
+        # findall() has been used  
+        # with valid conditions for urls in text 
+        regex = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
+        url = re.findall(regex,text)       
+        return [x[0] for x in url]
+
+    # Handle forbidden nHentai links
+    def nHentai_forbidden_tag_search(urls,guildID):
+        forbidden_detected = ""
+        bad_url = ""
+        forbidden_tag_list = [tag[1] for tag in forbidden_tags if tag[0]==str(guildID)]
+        print(forbidden_tag_list)
+        print(forbidden_tags)
+        for url in urls:
+            if(url.find("nhentai.net/g/")!=-1):
+                page = requests.get(url)
+                if(page.status_code == 200):
+                    soup = BeautifulSoup(page.content, 'html.parser') 
+                    tags = soup.find(id="tags")
+                    for tag_type in list(tags.children):
+                        if(tag_type.contents[0].lower().find("tags")!=-1):
+                            # Here we get all the tags
+                            for tag in tag_type.findAll("span", class_='name'):
+                                if(tag.getText().lower() in forbidden_tag_list):
+                                    forbidden_detected += tag.getText()+" "
+                                    bad_url = url
+                else:
+                    print("We couldn't open the Link: ",url)
+        if forbidden_detected!="":
+            return [forbidden_detected,bad_url]
+        else:
+            return None
+    
+    async def tgfDoujinshi(msg):
+        urls = urlExtractor(msg.content)
+        if(len(urls)>0):
+            forbiddenTags_url = nHentai_forbidden_tag_search(urls,msg.guild.id)
+            if (forbiddenTags_url!=None):
+                forbiddenCode = re.findall(r'\d+', forbiddenTags_url[1])[0] # Extracts the number from URL
+                content = msg.content.replace(forbiddenTags_url[1],"`#"+forbiddenCode+"`")
+                content += "\n\nEste link fué reducido porque detectamos el/los siguientes tags:\n`"+forbiddenTags_url[0]+"`"
+                await send_msg_as(author=msg.author,channel=msg.channel,content=content)
+                await msg.delete()
+        
+
+
     global temp_busquedas
     msg_received = msg.content.lower()
     await save_emojis()
 
+    # Global commands without activators
     if msg.content.lower().find("spoiler") != -1:
         await command_spoiler()
     elif msg.content.lower().find("name") != -1:
         await new_find_name(msg)
     elif msg.content.lower().find("nombre") != -1:
-        await command_name()
+        await new_find_name(msg)
+
+    # The Great Firewall
+    await tgfDoujinshi(msg)
 
     if msg_received[:2]==activator:
         msg_command = msg_received[2:]
@@ -1580,7 +1651,7 @@ async def on_message(msg):
             await command_config_bloqName()
         elif msg_command.find("di como")==0:
             statsAdd("di-como")
-            await command_say_like()
+            await command_say_like(msg)
         elif msg_command.find("say") == 0 or msg_command.find("di") == 0:
             statsAdd("say")
             await command_say()
