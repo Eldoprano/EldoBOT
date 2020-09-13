@@ -1,6 +1,11 @@
 keys.pkl
 anon_list.pkl
-temp.*
+configurations.pkl
+stats.pkl
+
+*.txt
+report.*
+temp*
 *.png
 *.jpg
 *.mp4
