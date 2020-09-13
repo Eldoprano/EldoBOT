@@ -40,7 +40,7 @@ import urllib.parse # Convert URL
 #   200 searches per day
 
 # Get configurations
-configurations = pickle.load(open("configurations.pkl", "rb" ))
+configurations = pickle.load(open(PICKLE_OF_CONFIGURATIONS, "rb" ))
 activator = "e!"
 
 
@@ -74,7 +74,7 @@ except Exception as e:
 # Initialize client
 client = discord.Client()
 try:
-    anon_list = pickle.load(open("anon_list.pkl", "rb" ))
+    anon_list = pickle.load(open(PICKLE_OF_ANONS, "rb" ))
     print("Pickle file loaded")
 except Exception as e:
     print(e)
@@ -90,6 +90,12 @@ mySQL_query = "SELECT g.GUILD_ID, TAG FROM "+DB_NAME+".FORBIDDEN_TAGS f inner jo
     DB_NAME+".GUILD g on f.GUILD_ID=g.id;"
 mycursor.execute(mySQL_query)
 forbidden_tags = mycursor.fetchall()
+
+# More constats to satisfy SonarCloud
+ANON_DEFAULT_PFP="https://media.discordapp.net/attachments/647898356311654447/706938410098622555/unknown.png"
+PICKLE_OF_CONFIGURATIONS="configurations.pkl"
+PICKLE_OF_ANONS="anon_list.pkl"
+
 
 # Notes:
 # Hey!! Add https://soruly.github.io/trace.moe/#/ to your bot! It has an easy to use API, and nice limits
@@ -267,7 +273,7 @@ async def on_guild_join(guild):
     await channel_logs.send(msg_to_send)
     if not guild.id in configurations["guilds"]:
         configurations["guilds"][guild.id] = {"general":{},"commands":{"name_channel_set":False,"name_channel":[],"name_ignore_message":""},"others":{}}
-        with open("configurations.pkl", 'wb') as pickle_file:
+        with open(PICKLE_OF_CONFIGURATIONS, 'wb') as pickle_file:
             pickle.dump(configurations,pickle_file)
         
 async def debugTraceMoe(image_to_search_URL="",msg=None):
@@ -703,7 +709,7 @@ async def on_message(msg):
         await msg.channel.send("Deshabilitado por mientras...",delete_after=5)
         await msg.delete(delay=5)
         return
-        help_text = "**Comandos de EldoBOT:**\n"
+        """help_text = "**Comandos de EldoBOT:**\n"
         help_text += "**{}say [mensaje]**:\n".format(activator) # 'format(activator)"' Puts the "e!" on the help
         help_text += "Has que el bot diga algo.\n"
         help_text += "**{}di como [@usuario] [mensaje]**:\n".format(activator)
@@ -726,14 +732,14 @@ async def on_message(msg):
         help_text += "Permite el uso del comando de búsqueda en el canal actual\n"
         help_text += "**{}bloquear name:\n**".format(activator)
         help_text += "Bloquea el uso del comando de búsqueda en el canal actual\n"
-        await msg.channel.send(help_text)
+        await msg.channel.send(help_text)"""
 
     async def command_config():
         if msg.author.permissions_in(msg.channel).manage_channels:
             if msg.content.find("e!conf name ignore_message ")==0:
                 name_ignore_message = msg.content.replace("e!conf name ignore_message ","")
                 configurations["guilds"][msg.guild.id]["commands"]["name_ignore_message"] = name_ignore_message
-                with open("configurations.pkl", 'wb') as pickle_file:
+                with open(PICKLE_OF_CONFIGURATIONS, 'wb') as pickle_file:
                     pickle.dump(configurations,pickle_file)
                 await msg.channel.send(content="Mensaje cambiado correctamente",delete_after=3)
         else:
@@ -743,7 +749,7 @@ async def on_message(msg):
         if msg.author.permissions_in(msg.channel).manage_channels:
             configurations["guilds"][msg.guild.id]["commands"]["name_channel_set"] = True
             configurations["guilds"][msg.guild.id]["commands"]["name_channel"].append(msg.channel.id)
-            with open("configurations.pkl", 'wb') as pickle_file:
+            with open(PICKLE_OF_CONFIGURATIONS, 'wb') as pickle_file:
                 pickle.dump(configurations,pickle_file)
             await msg.channel.send(content="Ahora se podrá usar el comando **name** en este canal",delete_after=3)
         else:
@@ -753,7 +759,7 @@ async def on_message(msg):
         if msg.author.permissions_in(msg.channel).manage_channels:
             if msg.channel.id in configurations["guilds"][msg.guild.id]["commands"]["name_channel"]:
                 del(configurations["guilds"][msg.guild.id]["commands"]["name_channel"][msg.channel.id])
-                with open("configurations.pkl", 'wb') as pickle_file:
+                with open(PICKLE_OF_CONFIGURATIONS, 'wb') as pickle_file:
                     pickle.dump(configurations,pickle_file)
             await msg.channel.send(content="Ya no se podrá usar el comando **name** en este canal",delete_after=3)
         else:
@@ -1018,7 +1024,7 @@ async def on_message(msg):
                 # Rellena datos que no fueron llenados
                 if emb_name == "":
                     try: emb_name = result_data["title"]
-                    except: pass
+                    except Exception as e: print(e)
                 if emb_artist == "":
                     try: 
                         if type(result_data["creator"])==type([]):
@@ -1027,10 +1033,10 @@ async def on_message(msg):
                             emb_artist = emb_artist[:-2]
                         else:
                             emb_artist = result_data["creator"]
-                    except: pass
+                    except Exception as e: print(e)
                 if emb_character == "":
                     try: emb_character = result_data["characters"]
-                    except: pass
+                    except Exception as e: print(e)
                 if emb_link == "":
                     try:
                         tmp_request = requests.get(result_data["source"])
@@ -1043,10 +1049,10 @@ async def on_message(msg):
                             emb_link = result_data["ext_urls"][0]
                         else:
                             emb_link = result_data["ext_urls"]
-                    except: pass
+                    except Exception as e: print(e)
                 if emb_name == "":
                     try: emb_name = result_data["eng_name"]
-                    except: pass
+                    except Exception as e: print(e)
 
             embed_sent = None
             bot_failed_this_time = False
@@ -1397,10 +1403,10 @@ async def on_message(msg):
             anon_list[tmp_user_id]["apodo"] = tmp_apodo
             await msg.channel.send(content="Apodo cambiado correctamente",delete_after=2)
         else:
-            anon_list[tmp_user_id] = {"apodo":tmp_apodo,"foto":"https://media.discordapp.net/attachments/647898356311654447/706938410098622555/unknown.png","guild":tmp_guild_id}
+            anon_list[tmp_user_id] = {"apodo":tmp_apodo,"foto":ANON_DEFAULT_PFP,"guild":tmp_guild_id}
             await msg.channel.send(content="Apodo cambiado correctamente",delete_after=2)
 
-        with open("anon_list.pkl", 'wb') as pickle_file:
+        with open(PICKLE_OF_ANONS, 'wb') as pickle_file:
             pickle.dump(anon_list,pickle_file)
 
 
@@ -1416,7 +1422,7 @@ async def on_message(msg):
             await msg.channel.send(content="Foto cambiada correctamente",delete_after=1.5)
 
         else:
-            tmp_msg_image_url = "https://media.discordapp.net/attachments/647898356311654447/706938410098622555/unknown.png"
+            tmp_msg_image_url = ANON_DEFAULT_PFP
             await msg.channel.send(content="Tienes que adjuntar una foto junto al comando e!foto",delete_after=3)
 
         await msg.delete()
@@ -1426,7 +1432,7 @@ async def on_message(msg):
         else:
             anon_list[tmp_user_id] = {"apodo":"Usuario Anónimo","foto":tmp_msg_image_url,"guild":tmp_guild_id}
 
-        with open("anon_list.pkl", 'wb') as pickle_file:
+        with open(PICKLE_OF_ANONS, 'wb') as pickle_file:
             pickle.dump(anon_list,pickle_file)
 
     async def command_anon():
@@ -1439,7 +1445,7 @@ async def on_message(msg):
             tmp_avatar = anon_list[tmp_user_id]["foto"]
             tmp_author = anon_list[tmp_user_id]["apodo"]
         else:
-            tmp_avatar = "https://media.discordapp.net/attachments/647898356311654447/706938410098622555/unknown.png"
+            tmp_avatar = ANON_DEFAULT_PFP
             tmp_author = "Usuario Anónimo"
 
         msg_to_say = msg_to_say.replace("e!anon ","",1)
