@@ -63,6 +63,8 @@ Discord_TOKEN = keys["Discord_TOKEN"]
 sauceNAO_TOKEN = keys["sauceNAO_TOKEN"]
 DB_NAME = keys["Database"]["database"]
 
+LOG_CHANNEL = 708648213774598164
+
 # Statistics Token
 try: stats = pickle.load(open("stats.pkl", "rb" ))
 except Exception as e: 
@@ -543,6 +545,8 @@ async def on_raw_reaction_add(payload):
     for element in list_of_messages:
         list_of_message_IDs.append(str(element.id))
 
+    
+
     def change_embed_dic(dictionary,confirmed,user_that_confirmed,idOfName=None):
         if confirmed:
             dictionary["color"]=1425173
@@ -664,7 +668,7 @@ async def on_ready():
     global channel_logs
     print(f'{client.user.name} has connected to Discord!')
     # Get channel for logs:
-    channel_logs = await client.fetch_channel(708648213774598164)
+    channel_logs = await client.fetch_channel(LOG_CHANNEL)
 
 # Desactivado por mientras...
 """
@@ -696,6 +700,9 @@ async def on_message(msg):
         return
 
     async def command_help():
+        await msg.channel.send("Deshabilitado por mientras...",delete_after=5)
+        await msg.delete(delay=5)
+        return
         help_text = "**Comandos de EldoBOT:**\n"
         help_text += "**{}say [mensaje]**:\n".format(activator) # 'format(activator)"' Puts the "e!" on the help
         help_text += "Has que el bot diga algo.\n"
@@ -752,6 +759,23 @@ async def on_message(msg):
         else:
             await msg.channel.send(content="No tienes permisos suficientes para hacer esto",delete_after=3)
 
+    async def save_media_on_log(media=None, url=None, name="NONE.png",message=""):
+        message = "eldoBOT backup plan :3 (just ignore this)\n"+message
+        if media!=None:
+            file_to_send = discord.File(fp = BytesIO(media),filename=name)
+
+        elif url!=None:
+            response = requests.get(url)
+            if response.ok:
+                file_to_send = BytesIO(response.content)
+                file_to_send = discord.File(fp = file_to_send,filename=name)
+            else:
+                print("Error! We couldn't get the image of the URL on function: save_media_on_log()")
+                return "https://i.kym-cdn.com/photos/images/newsfeed/000/747/832/bb7.gif"
+
+        message_sent = await channel_logs.send(file = file_to_send,content = message)
+        return message_sent.attachments[0].url
+
     async def command_say():
         text_to_say = msg.clean_content
         text_to_say = text_to_say.replace("e!say","",1)
@@ -764,6 +788,42 @@ async def on_message(msg):
 
         await msg.channel.send(embed = embed_to_send)
         await msg.delete()
+
+    async def send_msg_as(user_to_imitate,channel,content,embed=False,user_that_sent=None,footer_msg=None,media=None):
+        # Filter mentions out of the content
+        content = discord.utils.escape_mentions(content)
+        pfp_to_imitate = await user_to_imitate.avatar_url.read()
+
+        # Create a temporal Webhook to send the message
+        webhook_discord = await channel.create_webhook(name=user_to_imitate.name, avatar=pfp_to_imitate, reason="EldoBOT: Temp-webhook")
+        
+        # If we want to send it as an Embed (that shows who sent it) we go here
+        if embed and user_that_sent!=None:
+            embed_to_send = discord.Embed(description=content, colour=3553598).set_footer(text="Enviado por: " + str(user_that_sent.display_name))
+            if media!=None:
+                embed_to_send.set_image(url = media)
+            sent_message = await webhook_discord.send(embed = embed_to_send, username = user_to_imitate.display_name, wait = True)
+        elif footer_msg!=None:
+            embed_to_send = discord.Embed(description=content, colour=3553598).set_footer(text = footer_msg)
+            if media!=None:
+                embed_to_send.set_image(url = media)
+            sent_message = await webhook_discord.send(embed = embed_to_send, username = user_to_imitate.display_name, wait = True)
+        elif embed:
+            embed_to_send = discord.Embed(description=content, colour=3553598)
+            if media!=None:
+                embed_to_send.set_image(url = media)
+            sent_message = await webhook_discord.send(embed = embed_to_send, username = user_to_imitate.display_name, wait = True)
+        # If we just want to send it as a normal message, we go here
+        elif not embed:
+            sent_message = await webhook_discord.send(content = content, username = user_to_imitate.display_name, wait = True)
+        
+        print(content," Printed!")
+
+        # Delete webhook
+        print(sent_message.id)
+        await webhook_discord.delete()
+        print(sent_message.id)
+        return sent_message
 
     async def new_find_name(msg):
         # If there is no attachment, we ignore it
@@ -828,22 +888,27 @@ async def on_message(msg):
             if received_hash-image_hash < 40:
                 image_DB_id = row[4]
                 print("A Hash was found!")
-                if(row[3]==0 and row[1]==1):
+                # If it was found, but not by the bot, it means that a user added a found
+                # message, so we search for that data on the DB to show it
+                if(row[3]==0 and row[1]==1): 
                     mySQL_query = "SELECT NAME_RESULT.USER_THAT_FOUND, NAME_RESULT.TEXT, NAME_RESULT.IMAGE_LINK, NAME_IMAGE.URL "
                     mySQL_query += "FROM eldoBOT_DB.NAME_IMAGE INNER JOIN (NAME_RESULT INNER JOIN NAME_LOG on "
                     mySQL_query += "NAME_RESULT.ID=NAME_LOG.NAME_ID) ON NAME_LOG.IMAGE_ID = NAME_IMAGE.ID "
                     mySQL_query += "WHERE NAME_IMAGE.ID = %s ORDER BY NAME_RESULT.DATE DESC;"
                     mycursor.execute(mySQL_query,(row[4],))
                     tmp_user_DBid = mycursor.fetchall()
+                    # Small error handling. This should not happen
                     if mycursor.rowcount==0:
                         print("Huston, we have a problem with the HASH/USERMADE search")
                         continue
                     author_name = dbUserID_to_discordIDNameImage(tmp_user_DBid[0][0])
                     author_image= author_name[2]
                     author_name = author_name[1]
-                    if(tmp_user_DBid[0][2]!=None):
+                    # If the user included an image together with his found message
+                    if(tmp_user_DBid[0][2]!=None): 
                         embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=1425173).set_author(
                             name=author_name, icon_url=author_image).set_thumbnail(url = tmp_user_DBid[0][3]).set_image(url = tmp_user_DBid[0][2])
+                    # If not, we just show the found message together with the searched image
                     else:
                         embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=1425173).set_author(
                             name=author_name, icon_url=author_image).set_thumbnail(url = tmp_user_DBid[0][3])
@@ -851,6 +916,7 @@ async def on_message(msg):
                     await msg.channel.send(embed=embed_to_send)
                     return
 
+                # If the image was found by the bot before, we show who confirmed or denied it
                 elif(row[3]==1):
                     mySQL_query = "SELECT USERNAME FROM "+DB_NAME+".USER WHERE ID="+str(row[2])+";"
                     mycursor.execute(mySQL_query)
@@ -983,6 +1049,7 @@ async def on_message(msg):
                     except: pass
 
             embed_sent = None
+            bot_failed_this_time = False
             # Aquí ya deberíamos de tener todos los datos, así que empezamos a crear el mensaje
             if emb_name != "" or emb_artist != "" or emb_link != "":
                 emb_description = ""
@@ -1024,11 +1091,15 @@ async def on_message(msg):
                 if emb_preview != "":
                     emb_preview_file = requests.get(emb_preview)
                     if emb_preview_file.status_code == 200:
-                        tmp_msg = await channel_logs.send(content="temp_file. Descripción: \n"+emb_description,file = discord.File(BytesIO(emb_preview_file.content),filename="eldoBOT_te_quiere.png"))
-                        tmp_msg_image_url = tmp_msg.attachments[0].url
+                        tmp_msg_image_url = await save_media_on_log(media = emb_preview_file.content,name="eldoBOT_temp_preview_File.png",message=emb_description)
                         embed_to_send.set_image(url=tmp_msg_image_url)
                 # Send message
                 embed_sent = await msg.channel.send(embed=embed_to_send)
+
+                # Save user sended Image to our log channel
+                emb_preview_file = await msg.attachments[0].read()
+                tmp_msg_image_url = await save_media_on_log(media = emb_preview_file,name="eldoBOT_temp_File.png",message="Esta es una imagen que un usuario buscó")
+                image_to_search_URL = tmp_msg_image_url
 
                 # También una reacción para buscar con TraceMOE, si es que si funcionó, pero el usuario quiere video
                 if not hash_found:
@@ -1045,14 +1116,12 @@ async def on_message(msg):
                         writer.write(str(result_data))
                     await msg.add_reaction("➖")
                 else:
+                    bot_failed_this_time = True
                     emb_preview_file = await msg.attachments[0].read()
-                    tmp_msg = await channel_logs.send(content="temp_file. Este es una imagen que fallamos en encontrar con el bot", file=discord.File(BytesIO(emb_preview_file), filename="eldoBOT_ha_fallado.png"))
-                    tmp_msg_image_url = tmp_msg.attachments[0].url
-
-                    await msg.add_reaction("✖")
-                    await msg.add_reaction("🔎")
-                    tmp_msg_image_url = tmp_msg.attachments[0].url
-                    embed_sent = msg
+                    tmp_msg_image_url = await save_media_on_log(media = emb_preview_file,name="eldoBOT_ha_fallado.png",message="Este es una imagen que fallamos en encontrar con el bot")
+                    image_to_search_URL = tmp_msg_image_url
+                    # We send the webhook after we add the image to the DB
+                
 
             if not hash_found:
                 pil_image = Image.open(imageData)
@@ -1079,17 +1148,37 @@ async def on_message(msg):
                 tmp_guild_DBid = mycursor.fetchall()[0][0]
 
                 mySQL_query = "INSERT INTO "+DB_NAME+".NAME_IMAGE (HASH, URL, FILE_NAME, EXTENSION, GUILD_THAT_ASKED, USER_THAT_ASKED) VALUES (%s, %s, %s, %s, %s, %s) "
-                mycursor.execute(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
-                mydb.commit()
+                try:
+                    mycursor.execute(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
+                    mydb.commit()
+                except:
+                    return None
+
                 global messages_to_react
                 global status_messages_to_react
 
                 image_DB_id = mycursor.lastrowid
-                
+
+                # Send the message that we failed to find the name, together with
+                # the image ID as footer. We moved it here to get the DB ID
+                if bot_failed_this_time:
+                    embed_sent = await send_msg_as(user_to_imitate=msg.author,\
+                        channel=msg.channel,content=msg.clean_content,
+                        embed=True, media=tmp_msg_image_url, 
+                        footer_msg="Nombre no encontrado... | e!id"+str(image_DB_id))
+
+                    await embed_sent.add_reaction("✖")
+                    await embed_sent.add_reaction("🔎")
+                    await msg.delete()
+
             if image_DB_id!=None:            
                 # Change this if you want to read reactions from failed searches (TODO)
                 messages_to_react.append([embed_sent,image_DB_id,tmp_msg_image_url])
                 status_messages_to_react.append(0)
+
+                if len(messages_to_react)>50:
+                    messages_to_react.pop(0)
+                    status_messages_to_react.pop(0)
 
 
     async def testTraceMoe():
@@ -1361,27 +1450,6 @@ async def on_message(msg):
         await webhook_discord.delete()
         print("Confesión hecha!")
 
-    async def send_msg_as(author,channel,content,embed=False,user_that_sent=None):
-        # Filter mentions out of the content
-        content = discord.utils.escape_mentions(content)
-        pfp_to_imitate = await author.avatar_url.read()
-
-        # Create a temporal Webhook to send the message
-        webhook_discord = await channel.create_webhook(name=author.name, avatar=pfp_to_imitate, reason="EldoBOT: Temp-webhook")
-        
-        # If we want to send it as an Embed (that shows who sent it) we go here
-        if embed and user_that_sent!=None:
-            embed_to_send = discord.Embed(description=content, colour=16761856).set_footer(text="Enviado por: " + str(user_that_sent.display_name))
-            await webhook_discord.send(embed = embed_to_send, username = author.display_name)
-        # If we just want to send it as a normal message, we go here
-        elif not embed:
-            await webhook_discord.send(content = content, username = author.display_name)
-        
-        print(content," Printed!")
-
-        # Delete webhook
-        await webhook_discord.delete()
-
     async def command_say_like(msg):
         msg_to_say = msg.clean_content
         tmp_content = msg.content
@@ -1404,7 +1472,7 @@ async def on_message(msg):
             #msg_to_say = tmp_clean_msg[tmp_clean_msg.find(msg_to_say[2:4]):] # WTF, porque?? Shhh
 
         if(user_to_imitate != None):
-            await send_msg_as(author=user_to_imitate,channel=tmp_channel,content=msg_to_say,embed=True,user_that_sent=tmp_author)
+            await send_msg_as(user_to_imitate=user_to_imitate,channel=tmp_channel,content=msg_to_say,embed=True,user_that_sent=tmp_author)
         else:
             print("User: "+user_ID_to_imitate+" not found")
     
@@ -1575,8 +1643,6 @@ async def on_message(msg):
         forbidden_detected = ""
         bad_url = ""
         forbidden_tag_list = [tag[1] for tag in forbidden_tags if tag[0]==str(guildID)]
-        print(forbidden_tag_list)
-        print(forbidden_tags)
         for url in urls:
             if(url.find("nhentai.net/g/")!=-1):
                 page = requests.get(url)
@@ -1605,7 +1671,7 @@ async def on_message(msg):
                 forbiddenCode = re.findall(r'\d+', forbiddenTags_url[1])[0] # Extracts the number from URL
                 content = msg.content.replace(forbiddenTags_url[1],"`#"+forbiddenCode+"`")
                 content += "\n\nEste link fué reducido porque detectamos el/los siguientes tags:\n`"+forbiddenTags_url[0]+"`"
-                await send_msg_as(author=msg.author,channel=msg.channel,content=content)
+                await send_msg_as(user_to_imitate=msg.author,channel=msg.channel,content=content)
                 await msg.delete()
         
 
