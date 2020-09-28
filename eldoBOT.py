@@ -29,6 +29,7 @@ from tracemoe import TraceMoe
 from datetime import datetime
 import imagehash # Image fingerprinting
 import urllib.parse # Convert URL
+#import sched # For asynchrone repetitive Tasks
 
 # TraceMOE Limits:
 #   10 searches per minute
@@ -38,6 +39,17 @@ import urllib.parse # Convert URL
 # SauceNAO Limits:
 #   10 searches per minute
 #   200 searches per day
+
+# More constats to satisfy SonarCloud
+ANON_DEFAULT_PFP="https://media.discordapp.net/attachments/647898356311654447/706938410098622555/unknown.png"
+PICKLE_OF_CONFIGURATIONS="configurations.pkl"
+PICKLE_OF_ANONS="anon_list.pkl"
+COLOR_GREEN=1425173
+COLOR_BLUE=2190302
+COLOR_YELLOW=16776960
+COLOR_RED=15597568
+
+TIME_A1=0
 
 # Get configurations
 configurations = pickle.load(open(PICKLE_OF_CONFIGURATIONS, "rb" ))
@@ -90,12 +102,6 @@ mySQL_query = "SELECT g.GUILD_ID, TAG FROM "+DB_NAME+".FORBIDDEN_TAGS f inner jo
     DB_NAME+".GUILD g on f.GUILD_ID=g.id;"
 mycursor.execute(mySQL_query)
 forbidden_tags = mycursor.fetchall()
-
-# More constats to satisfy SonarCloud
-ANON_DEFAULT_PFP="https://media.discordapp.net/attachments/647898356311654447/706938410098622555/unknown.png"
-PICKLE_OF_CONFIGURATIONS="configurations.pkl"
-PICKLE_OF_ANONS="anon_list.pkl"
-
 
 # Notes:
 # Hey!! Add https://soruly.github.io/trace.moe/#/ to your bot! It has an easy to use API, and nice limits
@@ -493,10 +499,10 @@ async def userNameHelper(msg, id, user_text):
 
         # Create and send final Embedded
         if image_url==None:
-            embed_to_send = discord.Embed(description=user_text, color=1425173).set_author(
+            embed_to_send = discord.Embed(description=user_text, color=COLOR_GREEN).set_author(
                 name=msg.author.name, icon_url=str(msg.author.avatar_url)).set_thumbnail(url = tmp_user_DBid[0][1])
         else:
-            embed_to_send = discord.Embed(description=user_text, color=1425173).set_author(
+            embed_to_send = discord.Embed(description=user_text, color=COLOR_GREEN).set_author(
                 name=msg.author.name, icon_url=str(msg.author.avatar_url)).set_thumbnail(url = tmp_user_DBid[0][1]).set_image(url = image_url)
 
         await msg.channel.send(embed=embed_to_send)
@@ -513,7 +519,7 @@ def embedSearchHelper(url, idOfName = ""):
     tinyEYE_url = "https://www.tineye.com/search/?url="+url
     imageOPS_url = "http://imgops.com/"+unparsed_url
     return (
-        discord.Embed(title="Links de búsqueda:",description="Aquí algunos links que te ayudarán a encontrar tu imagen. Suerte en tu búsqueda!",color=2190302)
+        discord.Embed(title="Links de búsqueda:",description="Aquí algunos links que te ayudarán a encontrar tu imagen. Suerte en tu búsqueda!",color=COLOR_BLUE)
         .add_field(name="Yandex:", value="Es muy probable que aquí logres encontrar lo que buscas [link]("+yandex_url+").", inline=False)
         .add_field(name="Google:", value="De vez en cuando Google te ayudará a encontrarlo [link]("+google_url+").", inline=True)
         .add_field(name="tinyEYE:", value="También puedes probar tu suerte con TinyEYE [link]("+tinyEYE_url+").", inline=True)
@@ -555,12 +561,12 @@ async def on_raw_reaction_add(payload):
 
     def change_embed_dic(dictionary,confirmed,user_that_confirmed,idOfName=None):
         if confirmed:
-            dictionary["color"]=1425173
+            dictionary["color"]=COLOR_GREEN
             dictionary["title"] = "Confirmamos, nombre encontrado!"
             dictionary["footer"]["text"] = "Confirmado por " + \
                 user_that_confirmed + dictionary["footer"]["text"][dictionary["footer"]["text"].index('|')-1:]
         else:
-            dictionary["color"] = 15597568
+            dictionary["color"] = COLOR_RED
             dictionary["title"] = "Mission failed, we'll get em next time"
             dictionary["description"] = "~~" + dictionary["description"] + "~~\n\nEsta respuesta fué marcada como incorrecta, pero puedes intentar buscarla por ti mism@ reaccionando al 🔎\n"
             dictionary["description"] += "Lograste encontrar la imágen? Puedes ayudar a mejorar el bot enviando el nombre de la imagen con el comando:\n"
@@ -647,6 +653,14 @@ async def on_raw_reaction_add(payload):
         elif payload.emoji.name == "🎦" and actual_status >= 0:
             channel_of_reaction = guild_of_reaction.get_channel(payload.channel_id)
             message_of_reaction = await channel_of_reaction.fetch_message(payload.message_id)
+            embedded_msg_color = message_of_reaction.embeds[0].color.value
+
+            print(embedded_msg_color)
+            url_to_send = list_of_image_URL[position_to_change]
+            if embedded_msg_color == COLOR_GREEN:
+                url_to_send = message_of_reaction.embeds[0].image.url
+                print(url_to_send)
+
             await debugTraceMoe(list_of_image_URL[position_to_change],message_of_reaction)
             # Change status or remove message from list
             if(actual_status==1):
@@ -666,7 +680,7 @@ async def on_raw_reaction_add(payload):
             url_to_search = mycursor.fetchall()
             url_to_search = url_to_search[0][0]
             embedHelper = embedSearchHelper(url_to_search,list_of_DB_ids[position_to_change])
-            await list_of_messages[position_to_change].channel.send(embed=embedHelper)
+            await list_of_messages[position_to_change].channel.send(embed=embedHelper,delete_after=1800)
 
 
 @client.event
@@ -693,16 +707,16 @@ async def on_message(msg):
 
     # Ignore messages comming from a bot
     if msg.author.bot:
+        # If the bot is nHitomi, then look for forbidden tags  
         if msg.author.id==515386276543725568:
             forbidden_tag_list = [tag[1] for tag in forbidden_tags if tag[0]==str(msg.guild.id)]
-            print(forbidden_tag_list)
-            print(forbidden_tags)
             for embed in msg.embeds:
                 for field in embed.fields:
                     if field.name.find("Tag")!=-1:
                         for tag in forbidden_tag_list:
                             if field.value.find(tag)!=-1:
                                 await msg.delete()
+                                return
         return
 
     async def command_help():
@@ -836,11 +850,6 @@ async def on_message(msg):
         if len(msg.attachments)==0:
             return
 
-        global temp_busquedas
-        if not temp_busquedas:
-            await msg.channel.send("Nope! No te podré ayudar esta vez",delete_after=1.5)
-            return
-
         # Check if we can send names to this channel
         can_i_send_message = False
         if "name_channel" in configurations["guilds"][msg.guild.id]["commands"]:
@@ -854,6 +863,12 @@ async def on_message(msg):
         else:
             can_i_send_message = True
 
+        # Check if command was deactivated
+        global temp_busquedas
+        if not temp_busquedas:
+            await msg.channel.send("Nope! No te podré ayudar esta vez",delete_after=1.5)
+            return
+
         # If the user sent the command in a channel where we don't allow it, we inform him
         if can_i_send_message == False:
             #await msg.channel.send(content=configurations["guilds"][msg.guild.id]["commands"]["name_ignore_message"], delete_after=60)
@@ -865,13 +880,16 @@ async def on_message(msg):
         image_to_search_URL = msg.attachments[0].url
         emb_user = msg.author.name
 
+        print(int(round(time.time() * 1000))-TIME_A1,"ms have passed, at this point we have an img URL")
+
         # If the image is a... video, then we get the first frame
         if msg.attachments[0].filename.find(".mp4")!=-1:
             image_to_search = await get_video_frame(msg.attachments[0])
             image_to_search = Image.fromarray(image_to_search, 'RGB')
         else:
-            image_to_search = requests.get(image_to_search_URL)
-            image_to_search = Image.open(BytesIO(image_to_search.content))
+            image_to_search = await msg.attachments[0].read()
+            image_to_search = Image.open(BytesIO(image_to_search))
+
         print("Searching image: " + image_to_search_URL)
 
         image_to_search = image_to_search.convert('RGB')
@@ -880,18 +898,34 @@ async def on_message(msg):
         image_to_search.save(imageData,format='PNG')
         text_ready = False
 
+        TIME_FOR_HASH = int(round(time.time() * 1000))
         # Check if it was already confirmed by a user
-        hash_found = False
-        mySQL_query = "SELECT HASH, FOUND, CONFIRMED_BY, FOUND_BY_BOT, ID FROM " + \
-            DB_NAME+".NAME_IMAGE WHERE CONFIRMED_BY IS NOT NULL;"
-        mycursor.execute(mySQL_query)
-        sql_result = mycursor.fetchall()
+        # Get image HASH
         pil_image = Image.open(imageData)
         image_hash = imagehash.phash(pil_image,16)
+        str_image_hash = str(image_hash)
+
+        # Here we use MySQL to find the HASH with the lowest Hamming Distance in our DB
+        # We split it in 4, because MySQL can't handle bigger Integers
+        mySQL_query = """SELECT HASH, FOUND, CONFIRMED_BY, FOUND_BY_BOT, ID, 
+                            bit_count(CONV('""" + str_image_hash[:16] + """',16,10) ^ CONV(SUBSTRING(HASH,1,16),16,10))  +
+                            bit_count(CONV('""" + str_image_hash[16:32] + """',16,10) ^ CONV(SUBSTRING(HASH,17,16),16,10)) +
+                            bit_count(CONV('""" + str_image_hash[32:48] + """',16,10) ^ CONV(SUBSTRING(HASH,33,16),16,10)) +
+                            bit_count(CONV('""" + str_image_hash[48:] + """',16,10) ^ CONV(SUBSTRING(HASH,49,16),16,10)) as bitCount
+                        FROM """ + DB_NAME + """.NAME_IMAGE
+                        WHERE CONFIRMED_BY IS NOT NULL 
+                        ORDER BY bitCount
+                        LIMIT 1;
+        """
+
+
+
+        hash_found = False
+        mycursor.execute(mySQL_query)
+        sql_result = mycursor.fetchall()
         image_DB_id = None
         for row in sql_result:
-            received_hash = imagehash.hex_to_hash(row[0])
-            if received_hash-image_hash < 40:
+            if row[5] < 40:
                 image_DB_id = row[4]
                 print("A Hash was found!")
                 # If it was found, but not by the bot, it means that a user added a found
@@ -912,11 +946,11 @@ async def on_message(msg):
                     author_name = author_name[1]
                     # If the user included an image together with his found message
                     if(tmp_user_DBid[0][2]!=None): 
-                        embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=1425173).set_author(
+                        embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=COLOR_GREEN).set_author(
                             name=author_name, icon_url=author_image).set_thumbnail(url = tmp_user_DBid[0][3]).set_image(url = tmp_user_DBid[0][2])
                     # If not, we just show the found message together with the searched image
                     else:
-                        embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=1425173).set_author(
+                        embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=COLOR_GREEN).set_author(
                             name=author_name, icon_url=author_image).set_thumbnail(url = tmp_user_DBid[0][3])
                     
                     await msg.channel.send(embed=embed_to_send)
@@ -932,16 +966,16 @@ async def on_message(msg):
                     if(row[1]==1):
                         emb_embbed_tittle = "Nombre encontrado y confirmado"
                         text_in_footer = "Confirmado por " + tmp_user_DBid[0][0]
-                        emb_color = 1425173
+                        emb_color = COLOR_GREEN
                     else:
                         emb_embbed_tittle = "Nombre no encontrado. Pero aquí una imagen parecida:"
                         text_in_footer = "Denegado por " + tmp_user_DBid[0][0]
-                        emb_color = 15597568
+                        emb_color = COLOR_RED
                 
                 else:
                     print("Some strange things are happening with our DB")
 
-        
+        print(int(round(time.time() * 1000))-TIME_FOR_HASH,"ms to search throw all the hashes")
 
         # Variables for the Embedded message:
         emb_similarity = ""
@@ -1078,13 +1112,13 @@ async def on_message(msg):
 
                 if not hash_found:
                     if emb_similarity > 89:
-                        emb_color = 1425173  # A nice green
+                        emb_color = COLOR_GREEN  # A nice green
                         emb_embbed_tittle = "Nombre encontrado!"
                     elif emb_similarity > 73:
-                        emb_color = 16776960 # An insecure yellow
+                        emb_color = COLOR_YELLOW # An insecure yellow
                         emb_embbed_tittle = "Nombre quizás encontrado!"
                     else:
-                        emb_color = 15597568 # A worrying red
+                        emb_color = COLOR_RED # A worrying red
                         emb_embbed_tittle = "Nombre probablemente encontrado!"
 
                     text_in_footer = "Porcentaje de seguridad: " + str(emb_similarity)+ "% | Pedido por: "+ emb_user
@@ -1099,8 +1133,15 @@ async def on_message(msg):
                     if emb_preview_file.status_code == 200:
                         tmp_msg_image_url = await save_media_on_log(media = emb_preview_file.content,name="eldoBOT_temp_preview_File.png",message=emb_description)
                         embed_to_send.set_image(url=tmp_msg_image_url)
+
+                ################################################
+                ###### IMPORTANT! HERE WE SEND THE MESAGE ######
+                ################################################
                 # Send message
                 embed_sent = await msg.channel.send(embed=embed_to_send)
+
+                print(int(round(time.time() * 1000))-TIME_A1,"ms have passed, at this point we already sent the message")
+
 
                 # Save user sended Image to our log channel
                 emb_preview_file = await msg.attachments[0].read()
@@ -1131,8 +1172,7 @@ async def on_message(msg):
 
             if not hash_found:
                 pil_image = Image.open(imageData)
-                image_hash = str(imagehash.phash(pil_image,16))
-                pil_image.save("temp_images/"+image_hash+".png")
+                pil_image.save("temp_images/"+str(image_hash)+".png")
 
                 with open("out.txt", "wb") as outfile:
                     # Copy the BytesIO stream to the output file
@@ -1388,6 +1428,8 @@ async def on_message(msg):
             del anon_list[tmp_user_id]
         await msg.channel.send(content="Tu perfil anónimo fué reseteado correctamente",delete_after=2.5)
         await msg.delete()
+        with open(PICKLE_OF_ANONS, 'wb') as pickle_file:
+            pickle.dump(anon_list,pickle_file)
 
     async def command_anon_apodo():
         tmp_msg = msg.content
@@ -1577,7 +1619,7 @@ async def on_message(msg):
             # Add new emojis to database
             if(len(emojis_IDs)>0):
                 mySQL_query = "INSERT INTO "+DB_NAME+".EMOJI (EMOJI_ID, NAME, IMAGE_URL) VALUES (%s, %s, %s) "
-                records_to_insert = tuple(zip(emojis_IDs, emojis_call_names[:34], emojis_image_URL))
+                records_to_insert = tuple(zip(emojis_IDs, emojis_call_names[:33], emojis_image_URL))
                 mycursor.executemany(mySQL_query,records_to_insert)
                 mydb.commit()
                 if(len(records_to_insert)>0):
@@ -1645,11 +1687,13 @@ async def on_message(msg):
         return [x[0] for x in url]
 
     # Handle forbidden nHentai links
-    def nHentai_forbidden_tag_search(urls,guildID):
+    def link_forbidden_tag_search(urls,guildID):
         forbidden_detected = ""
         bad_url = ""
+        replacement_text = ""
         forbidden_tag_list = [tag[1] for tag in forbidden_tags if tag[0]==str(guildID)]
         for url in urls:
+            # Check for nHentai
             if(url.find("nhentai.net/g/")!=-1):
                 page = requests.get(url)
                 if(page.status_code == 200):
@@ -1662,20 +1706,62 @@ async def on_message(msg):
                                 if(tag.getText().lower() in forbidden_tag_list):
                                     forbidden_detected += tag.getText()+" "
                                     bad_url = url
+                            if forbidden_detected!="":
+                                replacement_text = "#" + re.findall(r'\d+', forbiddenTags_url[1])[0]
                 else:
                     print("We couldn't open the Link: ",url)
+
+            # Check for HitomiLa
+            elif(url.find("hitomi.la/")!=-1):
+                url_copy = url # Save a copy to send it at the end
+                # This URL has an URL that redirects us the one we want :P
+                if(url.find("https://hitomi.la/reader/") != -1):
+                    redirect_url_code = re.findall(r'\d+', url)[0]
+                    url = "https://hitomi.la/galleries/"+redirect_url_code+".html"
+
+                # If the user is strange enough to give us this as URL. 
+                #  It also handles the above generated url. 
+                #  It ultimately redirects to the Doujinshi site that has the tags on it
+                if(url.find("https://hitomi.la/galleries/") != -1 ):
+                    page = requests.get(url)
+                    if(page.status_code == 200):
+                        soup = BeautifulSoup(page.content, 'html.parser')
+                        tags = soup.find('a', href=True)
+                        url = tags['href']
+                    else:
+                        print("We couldn't open the redirected link: ",url)
+                
+                # If the URL is from the site where the tags are, read the tags
+                #  It also can handle the above generated url. 
+                if(url.find("https://hitomi.la/doujinshi/") != -1):
+                    page = requests.get(url)                
+                    if(page.status_code == 200):
+                        soup = BeautifulSoup(page.content, 'html.parser')
+                        tags = soup.findAll("ul", class_="tags")
+                        tags = tags[1].findAll("li")
+                        for tag in tags:
+                            for forbidden_tag in forbidden_tag_list:
+                                if(tag.getText().lower()==forbidden_tag):
+                                    forbidden_detected += tag.getText()+" "
+                                    bad_url = url
+                        if forbidden_detected!="":
+                            replacement_text = soup.select("body > div.container > div.content > div.gallery.dj-gallery > h1 > a")[0].getText()
+                    else:
+                        print("We couldn't open the Link: ",url)
+                bad_url = url_copy # Restore copy. We do this, so we send the correct url to replace
+
         if forbidden_detected!="":
-            return [forbidden_detected,bad_url]
+            return [forbidden_detected,bad_url,replacement_text]
         else:
             return None
     
     async def tgfDoujinshi(msg):
         urls = urlExtractor(msg.content)
         if(len(urls)>0):
-            forbiddenTags_url = nHentai_forbidden_tag_search(urls,msg.guild.id)
+            forbiddenTags_url = link_forbidden_tag_search(urls,msg.guild.id)
             if (forbiddenTags_url!=None):
-                forbiddenCode = re.findall(r'\d+', forbiddenTags_url[1])[0] # Extracts the number from URL
-                content = msg.content.replace(forbiddenTags_url[1],"`#"+forbiddenCode+"`")
+                forbiddenCode = forbiddenTags_url[2]
+                content = msg.content.replace(forbiddenTags_url[1],"`"+forbiddenCode+"`")
                 content += "\n\nEste link fué reducido porque detectamos el/los siguientes tags:\n`"+forbiddenTags_url[0]+"`"
                 await send_msg_as(user_to_imitate=msg.author,channel=msg.channel,content=content)
                 await msg.delete()
@@ -1690,7 +1776,9 @@ async def on_message(msg):
     if msg.content.lower().find("spoiler") != -1:
         await command_spoiler()
     elif msg.content.lower().find("name") != -1:
+        TIME_A1 = int(round(time.time() * 1000))
         await new_find_name(msg)
+        print("The search for the name finished after ", int(round(time.time() * 1000)) - TIME_A1)
     elif msg.content.lower().find("nombre") != -1:
         await new_find_name(msg)
 
