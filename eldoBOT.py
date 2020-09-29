@@ -709,15 +709,19 @@ async def on_message(msg):
     if msg.author.bot:
         # If the bot is nHitomi, then look for forbidden tags  
         if msg.author.id==515386276543725568:
+            collected_forbidden_tags = ""
             forbidden_tag_list = [tag[1] for tag in forbidden_tags if tag[0]==str(msg.guild.id)]
             for embed in msg.embeds:
                 for field in embed.fields:
                     if field.name.find("Tag")!=-1:
                         for tag in forbidden_tag_list:
                             if field.value.find(tag)!=-1:
-                                await msg.delete()
-                                return
-        return
+                                collected_forbidden_tags += tag + ", "
+            if collected_forbidden_tags!="":
+                content = "La respuesta del bot fué eliminada porque detectamos el/los siguientes tags:\n`"+collected_forbidden_tags[:-2]+"`"
+                await msg.channel.send(content=content, delete_after=10)
+                await msg.delete()
+                
 
     async def command_help():
         await msg.channel.send("Deshabilitado por mientras...",delete_after=5)
@@ -850,6 +854,11 @@ async def on_message(msg):
         if len(msg.attachments)==0:
             return
 
+        global temp_busquedas
+        if not temp_busquedas:
+            await msg.channel.send("Nope! No te podré ayudar esta vez",delete_after=1.5)
+            return
+
         # Check if we can send names to this channel
         can_i_send_message = False
         if "name_channel" in configurations["guilds"][msg.guild.id]["commands"]:
@@ -863,12 +872,6 @@ async def on_message(msg):
         else:
             can_i_send_message = True
 
-        # Check if command was deactivated
-        global temp_busquedas
-        if not temp_busquedas:
-            await msg.channel.send("Nope! No te podré ayudar esta vez",delete_after=1.5)
-            return
-
         # If the user sent the command in a channel where we don't allow it, we inform him
         if can_i_send_message == False:
             #await msg.channel.send(content=configurations["guilds"][msg.guild.id]["commands"]["name_ignore_message"], delete_after=60)
@@ -880,16 +883,13 @@ async def on_message(msg):
         image_to_search_URL = msg.attachments[0].url
         emb_user = msg.author.name
 
-        print(int(round(time.time() * 1000))-TIME_A1,"ms have passed, at this point we have an img URL")
-
         # If the image is a... video, then we get the first frame
         if msg.attachments[0].filename.find(".mp4")!=-1:
             image_to_search = await get_video_frame(msg.attachments[0])
             image_to_search = Image.fromarray(image_to_search, 'RGB')
         else:
-            image_to_search = await msg.attachments[0].read()
-            image_to_search = Image.open(BytesIO(image_to_search))
-
+            image_to_search = requests.get(image_to_search_URL)
+            image_to_search = Image.open(BytesIO(image_to_search.content))
         print("Searching image: " + image_to_search_URL)
 
         image_to_search = image_to_search.convert('RGB')
@@ -898,34 +898,18 @@ async def on_message(msg):
         image_to_search.save(imageData,format='PNG')
         text_ready = False
 
-        TIME_FOR_HASH = int(round(time.time() * 1000))
         # Check if it was already confirmed by a user
-        # Get image HASH
-        pil_image = Image.open(imageData)
-        image_hash = imagehash.phash(pil_image,16)
-        str_image_hash = str(image_hash)
-
-        # Here we use MySQL to find the HASH with the lowest Hamming Distance in our DB
-        # We split it in 4, because MySQL can't handle bigger Integers
-        mySQL_query = """SELECT HASH, FOUND, CONFIRMED_BY, FOUND_BY_BOT, ID, 
-                            bit_count(CONV('""" + str_image_hash[:16] + """',16,10) ^ CONV(SUBSTRING(HASH,1,16),16,10))  +
-                            bit_count(CONV('""" + str_image_hash[16:32] + """',16,10) ^ CONV(SUBSTRING(HASH,17,16),16,10)) +
-                            bit_count(CONV('""" + str_image_hash[32:48] + """',16,10) ^ CONV(SUBSTRING(HASH,33,16),16,10)) +
-                            bit_count(CONV('""" + str_image_hash[48:] + """',16,10) ^ CONV(SUBSTRING(HASH,49,16),16,10)) as bitCount
-                        FROM """ + DB_NAME + """.NAME_IMAGE
-                        WHERE CONFIRMED_BY IS NOT NULL 
-                        ORDER BY bitCount
-                        LIMIT 1;
-        """
-
-
-
         hash_found = False
+        mySQL_query = "SELECT HASH, FOUND, CONFIRMED_BY, FOUND_BY_BOT, ID FROM " + \
+            DB_NAME+".NAME_IMAGE WHERE CONFIRMED_BY IS NOT NULL;"
         mycursor.execute(mySQL_query)
         sql_result = mycursor.fetchall()
+        pil_image = Image.open(imageData)
+        image_hash = imagehash.phash(pil_image,16)
         image_DB_id = None
         for row in sql_result:
-            if row[5] < 40:
+            received_hash = imagehash.hex_to_hash(row[0])
+            if received_hash-image_hash < 40:
                 image_DB_id = row[4]
                 print("A Hash was found!")
                 # If it was found, but not by the bot, it means that a user added a found
@@ -946,11 +930,11 @@ async def on_message(msg):
                     author_name = author_name[1]
                     # If the user included an image together with his found message
                     if(tmp_user_DBid[0][2]!=None): 
-                        embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=COLOR_GREEN).set_author(
+                        embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=1425173).set_author(
                             name=author_name, icon_url=author_image).set_thumbnail(url = tmp_user_DBid[0][3]).set_image(url = tmp_user_DBid[0][2])
                     # If not, we just show the found message together with the searched image
                     else:
-                        embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=COLOR_GREEN).set_author(
+                        embed_to_send = discord.Embed(description=tmp_user_DBid[0][1], color=1425173).set_author(
                             name=author_name, icon_url=author_image).set_thumbnail(url = tmp_user_DBid[0][3])
                     
                     await msg.channel.send(embed=embed_to_send)
@@ -966,16 +950,16 @@ async def on_message(msg):
                     if(row[1]==1):
                         emb_embbed_tittle = "Nombre encontrado y confirmado"
                         text_in_footer = "Confirmado por " + tmp_user_DBid[0][0]
-                        emb_color = COLOR_GREEN
+                        emb_color = 1425173
                     else:
                         emb_embbed_tittle = "Nombre no encontrado. Pero aquí una imagen parecida:"
                         text_in_footer = "Denegado por " + tmp_user_DBid[0][0]
-                        emb_color = COLOR_RED
+                        emb_color = 15597568
                 
                 else:
                     print("Some strange things are happening with our DB")
 
-        print(int(round(time.time() * 1000))-TIME_FOR_HASH,"ms to search throw all the hashes")
+        
 
         # Variables for the Embedded message:
         emb_similarity = ""
@@ -1112,13 +1096,13 @@ async def on_message(msg):
 
                 if not hash_found:
                     if emb_similarity > 89:
-                        emb_color = COLOR_GREEN  # A nice green
+                        emb_color = 1425173  # A nice green
                         emb_embbed_tittle = "Nombre encontrado!"
                     elif emb_similarity > 73:
-                        emb_color = COLOR_YELLOW # An insecure yellow
+                        emb_color = 16776960 # An insecure yellow
                         emb_embbed_tittle = "Nombre quizás encontrado!"
                     else:
-                        emb_color = COLOR_RED # A worrying red
+                        emb_color = 15597568 # A worrying red
                         emb_embbed_tittle = "Nombre probablemente encontrado!"
 
                     text_in_footer = "Porcentaje de seguridad: " + str(emb_similarity)+ "% | Pedido por: "+ emb_user
@@ -1133,15 +1117,8 @@ async def on_message(msg):
                     if emb_preview_file.status_code == 200:
                         tmp_msg_image_url = await save_media_on_log(media = emb_preview_file.content,name="eldoBOT_temp_preview_File.png",message=emb_description)
                         embed_to_send.set_image(url=tmp_msg_image_url)
-
-                ################################################
-                ###### IMPORTANT! HERE WE SEND THE MESAGE ######
-                ################################################
                 # Send message
                 embed_sent = await msg.channel.send(embed=embed_to_send)
-
-                print(int(round(time.time() * 1000))-TIME_A1,"ms have passed, at this point we already sent the message")
-
 
                 # Save user sended Image to our log channel
                 emb_preview_file = await msg.attachments[0].read()
@@ -1172,7 +1149,8 @@ async def on_message(msg):
 
             if not hash_found:
                 pil_image = Image.open(imageData)
-                pil_image.save("temp_images/"+str(image_hash)+".png")
+                image_hash = str(imagehash.phash(pil_image,16))
+                pil_image.save("temp_images/"+image_hash+".png")
 
                 with open("out.txt", "wb") as outfile:
                     # Copy the BytesIO stream to the output file
@@ -1225,7 +1203,6 @@ async def on_message(msg):
                 if len(messages_to_react)>50:
                     messages_to_react.pop(0)
                     status_messages_to_react.pop(0)
-
 
     async def testTraceMoe():
         if len(msg.attachments)==0:
@@ -1776,9 +1753,11 @@ async def on_message(msg):
     if msg.content.lower().find("spoiler") != -1:
         await command_spoiler()
     elif msg.content.lower().find("name") != -1:
+
         TIME_A1 = int(round(time.time() * 1000))
         await new_find_name(msg)
         print("The search for the name finished after ", int(round(time.time() * 1000)) - TIME_A1)
+
     elif msg.content.lower().find("nombre") != -1:
         await new_find_name(msg)
 
@@ -1836,7 +1815,7 @@ async def on_message(msg):
         elif msg_command.find("foto") == 0 or msg_command.find("photo") == 0:
             statsAdd("foto")
             await command_anon_photo()
-        elif msg_command.find("anon ")==0 and (msg.channel.id==706925747792511056 or msg.guild.id==646799198167105539 or msg.author.permissions_in(msg.channel).manage_messages):
+        elif msg_command.find("anon ")==0 and (msg.channel.id==706925747792511056 or msg.channel.id==681672275556434009 or msg.guild.id==646799198167105539 or msg.author.permissions_in(msg.channel).manage_messages):
             statsAdd("anon")
             await command_anon()
         elif msg_command.find("say") == 0:
