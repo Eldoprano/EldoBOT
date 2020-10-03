@@ -1,3 +1,4 @@
+import hashlib
 import os
 from time import sleep
 import time
@@ -721,7 +722,7 @@ async def on_message(msg):
                 content = "La respuesta del bot fué eliminada porque detectamos el/los siguientes tags:\n`"+collected_forbidden_tags[:-2]+"`"
                 await msg.channel.send(content=content, delete_after=10)
                 await msg.delete()
-                
+        return
 
     async def command_help():
         await msg.channel.send("Deshabilitado por mientras...",delete_after=5)
@@ -1458,14 +1459,23 @@ async def on_message(msg):
         msg_to_say = msg.content
         tmp_channel = msg.channel
         tmp_user_id = msg.author.id
+        tmp_user_nick = msg.author.display_name  # To calculate our weekly HASH
         await msg.delete()
+
+        # Add a number that changes every ~10 days at the end, to vary the hash
+        # Use nickname so user can vary his hash by just changing it's nickname
+        # Hash it with md5 and get 4 first digits. I don't really care about colisions :P
+        str_to_hash = tmp_user_nick + str(tmp_user_id) + \
+            str(hex(int(time.time())))[2:-5]
+        hash_adition = hashlib.md5(
+            str_to_hash.encode('utf-8')).hexdigest()[:4].upper()
 
         if tmp_user_id in anon_list:
             tmp_avatar = anon_list[tmp_user_id]["foto"]
             tmp_author = anon_list[tmp_user_id]["apodo"]
         else:
             tmp_avatar = ANON_DEFAULT_PFP
-            tmp_author = "Usuario Anónimo"
+            tmp_author = "Usuario Anónimo #" + hash_adition
 
         msg_to_say = msg_to_say.replace("e!anon ","",1)
         msg_to_say = discord.utils.escape_mentions(msg_to_say)
