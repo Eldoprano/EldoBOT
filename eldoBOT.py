@@ -1459,14 +1459,26 @@ async def on_message(msg):
         tmp_channel = msg.channel
         tmp_author = msg.author.display_name
         pfp_to_imitate = await msg.author.avatar_url.read()
+
+        if len(msg.attachments)>0:
+            tmp_list_images=[]
+            for attachment in msg.attachments:
+                tmp_img_bytes = await attachment.read()
+                tmp_img_filename = attachment.filename
+                tmp_img_bytes = BytesIO(tmp_img_bytes)
+                tmp_img = discord.File(tmp_img_bytes, filename=tmp_img_filename)
+                tmp_list_images.append(tmp_img)
+
         await msg.delete()
     
         reemplazador = re.compile(re.escape(text), re.IGNORECASE)
         msg_to_say = reemplazador.sub(replaced, msg_to_say, times)
 
-        msg_to_say = discord.utils.escape_mentions(msg_to_say)
         webhook_discord = await tmp_channel.create_webhook(name=tmp_author, avatar=pfp_to_imitate, reason="EldoBOT: Temp-webhook")
-        await webhook_discord.send(content = msg_to_say, username = tmp_author)#, allowed_mentions = allowed_mentions_NONE)
+        if len(msg.attachments)>0:
+            await webhook_discord.send(content = msg_to_say, files = tmp_list_images, username = tmp_author)#, allowed_mentions = allowed_mentions_NONE)
+        else:
+            await webhook_discord.send(content = msg_to_say, username = tmp_author)#, allowed_mentions = allowed_mentions_NONE)
         # Delete webhook
         await webhook_discord.delete()
 
@@ -1743,10 +1755,13 @@ async def on_message(msg):
 
     def urlExtractor(text):
         # findall() has been used  
-        # with valid conditions for urls in text 
-        regex = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
-        url = re.findall(regex,text)       
-        return [x[0] for x in url]
+        # with valid conditions for urls in text
+        found_in = text.find(".")
+        if len(text) > 10 and (found_in < len(text)-1 and found_in != -1):
+            regex = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
+            url = re.findall(regex,text)       
+            return [x[0] for x in url]
+        return ""
 
     # Handle forbidden nHentai links
     def link_forbidden_tag_search(urls,guildID):
@@ -1769,7 +1784,7 @@ async def on_message(msg):
                                     forbidden_detected += tag.getText()+" "
                                     bad_url = url
                             if forbidden_detected!="":
-                                replacement_text = "#" + re.findall(r'\d+', forbiddenTags_url[1])[0]
+                                replacement_text = "#" + re.findall(r'\d+', url)[0]
                 else:
                     print("We couldn't open the Link: ",url)
 
@@ -1871,7 +1886,7 @@ async def on_message(msg):
     # Global commands without activators
     if msg.content.lower().find("ch!reportuser") == 0:
         await send_report()
-    if msg.content.lower().find("spoiler") != -1:
+    elif msg.content.lower().find("spoiler") != -1:
         await command_spoiler()
     elif msg.content.lower().find("name") != -1:
         TIME_A1 = int(round(time.time() * 1000))
