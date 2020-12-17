@@ -1,3 +1,4 @@
+print("starting...")
 import hashlib
 import os
 from time import sleep
@@ -6,6 +7,7 @@ import discord
 from discord import NotFound
 from dotenv import load_dotenv
 import requests
+from requests import Session
 from bs4 import BeautifulSoup
 import json
 from PIL import Image
@@ -26,11 +28,13 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 matplotlib.use('Agg')
-from tracemoe import TraceMoe
 from datetime import datetime
 import imagehash # Image fingerprinting
 import urllib.parse # Convert URL
+import asyncio
+import homoglyphs as hg # Kills those nasty homoglyphs
 #import sched # For asynchrone repetitive Tasks
+print("Import completed!")
 
 # TraceMOE Limits:
 #   10 searches per minute
@@ -51,11 +55,17 @@ COLOR_YELLOW=16776960
 COLOR_RED=15597568
 
 TIME_A1=0
+MUTE_ROL=0
+
+# TraceMoe variables
+tracemoe_session = Session()
+tracemoe_session.headers = {
+    "Content-Type": "application/json"
+}
 
 # Get configurations
 configurations = pickle.load(open(PICKLE_OF_CONFIGURATIONS, "rb" ))
 activator = "e!"
-
 
 # What is that???!!!!!
 # The informJSON
@@ -84,8 +94,12 @@ except Exception as e:
     print(e)
     stats = {}
 
+# Intents! The new thingy of Discord
+intents = discord.Intents.default()
+intents.members = True
+
 # Initialize client
-client = discord.Client()
+client = discord.Client(intents=intents)
 try:
     anon_list = pickle.load(open(PICKLE_OF_ANONS, "rb" ))
     print("Pickle file loaded")
@@ -95,8 +109,16 @@ except Exception as e:
     anon_list = {}
 
 channel_logs=0
+report_channel=0
+
 messages_to_react = []
 status_messages_to_react = []
+spam_detector_list = {}
+homoglyphs = hg.Homoglyphs(
+    languages={'en'},
+    strategy=hg.STRATEGY_LOAD,
+    ascii_strategy=hg.STRATEGY_REMOVE,
+)
 
 # Load configurations from DB
 mySQL_query = "SELECT g.GUILD_ID, TAG FROM "+DB_NAME+".FORBIDDEN_TAGS f inner join  " + \
@@ -104,6 +126,8 @@ mySQL_query = "SELECT g.GUILD_ID, TAG FROM "+DB_NAME+".FORBIDDEN_TAGS f inner jo
 mycursor.execute(mySQL_query)
 forbidden_tags = mycursor.fetchall()
 
+
+print("initial configurations completed")
 # Notes:
 # Hey!! Add https://soruly.github.io/trace.moe/#/ to your bot! It has an easy to use API, and nice limits
 # It also gives you information when the saucenao doesn't.
@@ -262,15 +286,6 @@ async def find_name(msg):
                     writer.write("\n----------"+datetime.today().strftime("%d/%m/%Y %H:%M:%S")+"-------------\n")
                     writer.write(str(result_data))
 
-            #tracemoe = TraceMoe()
-            #response = await tracemoe.search(
-            #    image_to_search_URL,
-            #    is_url=True
-            #)
-            #video = await tracemoe.video_preview_natural(response)
-            #discord_video = Discord.File(fp = BytesIO(video))
-
-
             return ("❌",None)
 
 @client.event
@@ -283,6 +298,37 @@ async def on_guild_join(guild):
         with open(PICKLE_OF_CONFIGURATIONS, 'wb') as pickle_file:
             pickle.dump(configurations,pickle_file)
         
+# (Copying) Reeplacing the TraceMoe py library to fit it here in code
+# Shamefully copied from https://github.com/Ethosa/tracemoe/blob/master/tracemoe/TraceMoe.py
+def tracemoe_search(url):
+    path = "https://trace.moe/api/search"#?method=jc" # New Algo method
+
+    return tracemoe_session.get(
+        path, params={"url": url}
+    ).json()
+
+def tracemoe_video_preview_natural(response, index=0, mute=False):
+    response = response["docs"][index]
+    url = "https://media.trace.moe/video/%s/%s?t=%s&token=%s" % (
+        response["anilist_id"],
+        response["filename"], response["at"],
+        response["tokenthumb"]
+    )
+    if mute:
+        url += "&mute"
+    return tracemoe_session.get(url).content
+
+def tracemoe_image_preview(response, index=0, page="thumbnail.php"):
+    response = response["docs"][index]
+    url = "https://trace.moe/%s?anilist_id=%s&file=%s&t=%s&token=%s" % (
+        page, response["anilist_id"],
+        response["filename"], response["at"], response["tokenthumb"]
+    )
+    return tracemoe_session.get(url).content
+
+def tracemoe_video_preview(response, index=0):
+    return tracemoe_image_preview(response, index, "preview.php")
+
 async def debugTraceMoe(image_to_search_URL="",msg=None):
     if image_to_search_URL=="":
         if len(msg.attachments)>0:
@@ -290,14 +336,10 @@ async def debugTraceMoe(image_to_search_URL="",msg=None):
         else:
             return
 
-    tracemoe = TraceMoe()
     fileToSend = None
 
     async with msg.channel.typing():
-        response = tracemoe.search(
-            image_to_search_URL,
-            is_url=True
-        )
+        response = tracemoe_search(image_to_search_URL)
         videoFound = False
         for i, result in enumerate(response["docs"]):
             # If we already searched the 3 first videos, we skip
@@ -306,8 +348,8 @@ async def debugTraceMoe(image_to_search_URL="",msg=None):
                 break
             if result["similarity"] > 0.87:
                 try:
-                    videoN = tracemoe.video_preview_natural(response,index=i)
-                    videoForce = tracemoe.video_preview(response,index=i)
+                    videoN = tracemoe_video_preview_natural(response,index=i)
+                    videoForce = tracemoe_video_preview(response,index=i)
                     # If the video without the natural cut is bigger with a diference of 1sec aprox, then we choose that one
                     #print("Normal:",BytesIO(videoForce).getbuffer().nbytes,"vs Natural:",BytesIO(videoN).getbuffer().nbytes)
                     if(BytesIO(videoForce).getbuffer().nbytes - BytesIO(videoN).getbuffer().nbytes>45000):
@@ -321,7 +363,7 @@ async def debugTraceMoe(image_to_search_URL="",msg=None):
                 except Exception as e: print(e)
 
         if not videoFound:
-            image = tracemoe.image_preview(response)
+            image = tracemoe_image_preview(response)
             fileToSend = discord.File(fp = BytesIO(image),filename="Preview_not_found__sowy_uwu.jpg")
 
         # Detect type of Anime
@@ -687,9 +729,13 @@ async def on_raw_reaction_add(payload):
 @client.event
 async def on_ready():
     global channel_logs
+    global report_channel 
     print(f'{client.user.name} has connected to Discord!')
     # Get channel for logs:
     channel_logs = await client.fetch_channel(LOG_CHANNEL)
+    report_channel = await client.fetch_channel(723973823833047111)
+    anis_guild = await client.fetch_guild(624079272155414528)
+    MUTE_ROL = anis_guild.get_role(627633919939837978)
 
 # Desactivado por mientras...
 """
@@ -916,6 +962,7 @@ async def on_message(msg):
                 # If it was found, but not by the bot, it means that a user added a found
                 # message, so we search for that data on the DB to show it
                 if(row[3]==0 and row[1]==1): 
+                    print("found, but not by the bot")
                     mySQL_query = "SELECT NAME_RESULT.USER_THAT_FOUND, NAME_RESULT.TEXT, NAME_RESULT.IMAGE_LINK, NAME_IMAGE.URL "
                     mySQL_query += "FROM eldoBOT_DB.NAME_IMAGE INNER JOIN (NAME_RESULT INNER JOIN NAME_LOG on "
                     mySQL_query += "NAME_RESULT.ID=NAME_LOG.NAME_ID) ON NAME_LOG.IMAGE_ID = NAME_IMAGE.ID "
@@ -943,6 +990,7 @@ async def on_message(msg):
 
                 # If the image was found by the bot before, we show who confirmed or denied it
                 elif(row[3]==1):
+                    print("found by the bot before")
                     mySQL_query = "SELECT USERNAME FROM "+DB_NAME+".USER WHERE ID="+str(row[2])+";"
                     mycursor.execute(mySQL_query)
                     tmp_user_DBid = mycursor.fetchall()
@@ -1042,7 +1090,10 @@ async def on_message(msg):
 
                 # Rellena datos que no fueron llenados
                 if emb_name == "":
-                    try: emb_name = result_data["title"]
+                    try: 
+                        if "title_english" in result_data:
+                            emb_name = result_data["title_english"]
+                        emb_name = result_data["title"]
                     except Exception as e: print(e)
                 if emb_artist == "":
                     try: 
@@ -1057,11 +1108,15 @@ async def on_message(msg):
                     try: emb_character = result_data["characters"]
                     except Exception as e: print(e)
                 if emb_link == "":
-                    try:
-                        tmp_request = requests.get(result_data["source"])
-                        if tmp_request.status_code < 300:
-                            emb_link = result_data["source"]
-                    except: emb_link = ""
+                    try: 
+                        if "mal_id" in result_data:
+                            emb_link = "https://myanimelist.net/anime/" + \
+                        result_data["mal_id"]
+                        elif type(result_data["ext_urls"])==type([]):
+                            emb_link = result_data["ext_urls"][0]
+                        else:
+                            emb_link = result_data["ext_urls"]
+                    except Exception as e: print(e)
                 if emb_link == "":
                     try: 
                         if type(result_data["ext_urls"])==type([]):
@@ -1072,6 +1127,8 @@ async def on_message(msg):
                 if emb_name == "":
                     try: emb_name = result_data["eng_name"]
                     except Exception as e: print(e)
+                if emb_episode == "" and "episode" in result_data:
+                    emb_episode = result_data["episode"]
 
             embed_sent = None
             bot_failed_this_time = False
@@ -1119,6 +1176,7 @@ async def on_message(msg):
                         tmp_msg_image_url = await save_media_on_log(media = emb_preview_file.content,name="eldoBOT_temp_preview_File.png",message=emb_description)
                         embed_to_send.set_image(url=tmp_msg_image_url)
                 # Send message
+                print("Sending message to channel")
                 embed_sent = await msg.channel.send(embed=embed_to_send)
 
                 # Save user sended Image to our log channel
@@ -1134,6 +1192,7 @@ async def on_message(msg):
                 await embed_sent.add_reaction("🔎")
 
             else:  
+                bot_failed_this_time = True
                 if float(similarity_of_result)>75:
                     with open('log.ignore', 'a') as writer:
                         writer.write("\n---------- NOT FOUND "+datetime.today().strftime("%d/%m/%Y %H:%M:%S")+"-------------\n")
@@ -1141,7 +1200,6 @@ async def on_message(msg):
                         writer.write(str(result_data))
                     await msg.add_reaction("➖")
                 else:
-                    bot_failed_this_time = True
                     emb_preview_file = await msg.attachments[0].read()
                     tmp_msg_image_url = await save_media_on_log(media = emb_preview_file,name="eldoBOT_ha_fallado.png",message="Este es una imagen que fallamos en encontrar con el bot")
                     image_to_search_URL = tmp_msg_image_url
@@ -1168,6 +1226,7 @@ async def on_message(msg):
                 tmp_user_DBid = tmp_user_DBid[0][0]
             
             if not hash_found:
+                print("hash wasn't found apparently")
                 mySQL_query = "SELECT ID FROM "+DB_NAME+".GUILD WHERE GUILD_ID="+str(msg.guild.id)+";"
                 mycursor.execute(mySQL_query)
                 tmp_guild_DBid = mycursor.fetchall()[0][0]
@@ -1176,8 +1235,8 @@ async def on_message(msg):
                 try:
                     mycursor.execute(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
                     mydb.commit()
-                except:
-                    return None
+                except Exception as e:
+                    print(e)
 
                 global messages_to_react
                 global status_messages_to_react
@@ -1209,15 +1268,11 @@ async def on_message(msg):
         if len(msg.attachments)==0:
             return
         image_to_search_URL = msg.attachments[0].url
-        tracemoe = TraceMoe()
         async with msg.channel.typing():
-            response = tracemoe.search(
-                image_to_search_URL,
-                is_url=True
-            )
+            response = tracemoe_search(image_to_search_URL)
             msg_to_send=""
             try:
-                videoN = tracemoe.video_preview_natural(response)
+                videoN = tracemoe_video_preview_natural(response)
                 print(BytesIO(videoN))
                 msg_to_send += "JSON de respuesta(" +str(len(BytesIO(videoN)))+"):\n"
             except Exception as e: print(e)
@@ -1251,6 +1306,19 @@ async def on_message(msg):
 
         with open("stats.pkl", 'wb') as pickle_file:
             pickle.dump(stats,pickle_file)
+
+    async def send_report():
+        global report_channel
+        tmp_channel = msg.channel
+        tmp_message = msg.content+"\nEnviado por "+msg.author.display_name
+        await asyncio.sleep(5)
+        try:
+            await msg.delete()
+        except discord.NotFound:
+            return
+
+        await report_channel.send(content=tmp_message)
+        await tmp_channel.send(content="✅ Reporte enviado al Staff", delete_after=7)
 
     async def command_spoiler():
         if len(msg.attachments)>0:
@@ -1386,19 +1454,26 @@ async def on_message(msg):
             msg_to_send += "- " + str(user) + "\n"
         await msg.channel.send(msg_to_send)
 
-    async def command_bot():
+    async def replace_user_text(text="", replaced="",times=0):
         msg_to_say = msg.content
         tmp_channel = msg.channel
         tmp_author = msg.author.display_name
         pfp_to_imitate = await msg.author.avatar_url.read()
         await msg.delete()
+    
+        reemplazador = re.compile(re.escape(text), re.IGNORECASE)
+        msg_to_say = reemplazador.sub(replaced, msg_to_say, times)
 
-        msg_to_say = msg_to_say.replace("e!bot ","",1)
         msg_to_say = discord.utils.escape_mentions(msg_to_say)
         webhook_discord = await tmp_channel.create_webhook(name=tmp_author, avatar=pfp_to_imitate, reason="EldoBOT: Temp-webhook")
         await webhook_discord.send(content = msg_to_say, username = tmp_author)#, allowed_mentions = allowed_mentions_NONE)
         # Delete webhook
         await webhook_discord.delete()
+
+
+    async def command_bot():
+        await replace_user_text("e!bot ","",1)
+
 
     async def command_anon_reset():
         tmp_user_id = msg.author.id
@@ -1752,6 +1827,40 @@ async def on_message(msg):
                 content += "\n\nEste link fué reducido porque detectamos el/los siguientes tags:\n`"+forbiddenTags_url[0]+"`"
                 await send_msg_as(user_to_imitate=msg.author,channel=msg.channel,content=content)
                 await msg.delete()
+    
+    async def spam_detector(msg):
+        global MUTE_ROL
+        for rol in msg.author.roles: # Eww, Hardcoded :P (>=lvl 3)
+            if(rol.id == 630560047872737320):
+                return
+        
+        if str(msg.author.id) not in spam_detector_list:
+            spam_detector_list[str(msg.author.id)] = []
+        
+        spam_detector_list[str(msg.author.id)].append(
+            [homoglyphs.to_ascii(msg.content), msg.created_at, msg.channel.id])
+
+        if len(spam_detector_list[str(msg.author.id)])>5:
+            first_to_scan = 1
+            spam_points = 0
+            for spm_msg in spam_detector_list[str(msg.author.id)]:
+                for i in range (first_to_scan,len(spam_detector_list[str(msg.author.id)])):
+                    # If the messages where sent 5 minutes apart or less
+                    if( spm_msg[0]==spam_detector_list[str(msg.author.id)][i][0]
+                        and abs(spm_msg[1]-spam_detector_list[str(msg.author.id)][i][1]).total_seconds()/60<7 
+                        and spm_msg[2]!=spam_detector_list[str(msg.author.id)][i][2] ):
+                        print("spam?")
+                        spam_points += 1
+                first_to_scan += 1
+                if first_to_scan == len(spam_detector_list[str(msg.author.id)]):
+                    break
+            
+            if spam_points >= 4:
+                msg.author.add_roles(MUTE_ROL)
+                print("SPAM!!!")
+
+        elif len(spam_detector_list[str(msg.author.id)])>10:
+            spam_detector_list[str(msg.author.id)].pop(0)
         
 
 
@@ -1760,16 +1869,20 @@ async def on_message(msg):
     await save_emojis()
 
     # Global commands without activators
+    if msg.content.lower().find("ch!reportuser") == 0:
+        await send_report()
     if msg.content.lower().find("spoiler") != -1:
         await command_spoiler()
     elif msg.content.lower().find("name") != -1:
-
         TIME_A1 = int(round(time.time() * 1000))
         await new_find_name(msg)
         print("The search for the name finished after ", int(round(time.time() * 1000)) - TIME_A1)
 
     elif msg.content.lower().find("nombre") != -1:
         await new_find_name(msg)
+
+    if msg.content.lower().find(":v") != -1:
+        await replace_user_text(":v","Soy subnormal")
 
     # The Great Firewall
     await tgfDoujinshi(msg)
@@ -1877,6 +1990,6 @@ async def on_message(msg):
                             await message_element.add_reaction(list_of_number_emojis[i])
                             message_sent = True
             await msg.delete()
-        
+    #await spam_detector(msg)
             
 client.run(Discord_TOKEN)
