@@ -53,6 +53,7 @@ COLOR_GREEN=1425173
 COLOR_BLUE=2190302
 COLOR_YELLOW=16776960
 COLOR_RED=15597568
+STAFF_ROLE=0
 
 TIME_A1=0
 MUTE_ROL=0
@@ -89,7 +90,7 @@ DB_NAME = keys["Database"]["database"]
 LOG_CHANNEL = 708648213774598164
 
 # Statistics Token
-try: stats = pickle.load(open("stats.pkl", "rb" ))
+try: A = pickle.load(open("stats.pkl", "rb" ))
 except Exception as e: 
     print(e)
     stats = {}
@@ -290,6 +291,7 @@ async def find_name(msg):
 
 @client.event
 async def on_guild_join(guild):
+    global STAFF_ROLE
     msg_to_send = "Fuimos invitados a un nuevo servidor!! Nombre:", guild.name
     print(msg_to_send)
     await channel_logs.send(msg_to_send)
@@ -297,6 +299,7 @@ async def on_guild_join(guild):
         configurations["guilds"][guild.id] = {"general":{},"commands":{"name_channel_set":False,"name_channel":[],"name_ignore_message":""},"others":{}}
         with open(PICKLE_OF_CONFIGURATIONS, 'wb') as pickle_file:
             pickle.dump(configurations,pickle_file)
+    STAFF_ROLE = guild.get_role(683787780236902450)
         
 # (Copying) Reeplacing the TraceMoe py library to fit it here in code
 # Shamefully copied from https://github.com/Ethosa/tracemoe/blob/master/tracemoe/TraceMoe.py
@@ -331,8 +334,8 @@ def tracemoe_video_preview(response, index=0):
 
 async def debugTraceMoe(image_to_search_URL="",msg=None):
     if image_to_search_URL=="":
-        if len(msg.attachments)>0:
-            image_to_search_URL = msg.attachments[0].url
+        if len(ctx.message.attachments)>0:
+            image_to_search_URL = ctx.message.attachments[0].url
         else:
             return
 
@@ -1644,6 +1647,12 @@ async def on_message(msg):
         await msg.channel.send("Función desactivada")
         return
 
+    # The channel where this command is used gets temporarily closed, and their members get muted
+    # Use it in case of a raid. 
+    async def za_warudo(msg):
+
+        pass
+
     # This saves in a Databases what emojis where used by wich user and when, so we can do statistics later on
     async def save_emojis():
         if re.findall('<:(.*?)>', msg.content, re.DOTALL) or len("".join(c for c in msg.content if c in emoji.UNICODE_EMOJI))>0:
@@ -1917,6 +1926,8 @@ async def on_message(msg):
         elif msg_command == "help" or msg_command == "ayuda":
             statsAdd("help")
             await command_help()
+        elif msg_command == "stop" or msg_command.lower() == "za warudo":
+            await za_warudo(msg)
         elif msg_command.find("conf") == 0 or msg_command.find("configurar") == 0:
             statsAdd("conf")
             await command_config()

@@ -11,6 +11,10 @@ temp*
 *.mp4
 *.pyc
 *.ignore
+*.logs
+configuration.json
+tmp_*
+ignore_*
 
 # Created by https://www.gitignore.io/api/visualstudiocode
 # Edit at https://www.gitignore.io/?templates=visualstudiocode
