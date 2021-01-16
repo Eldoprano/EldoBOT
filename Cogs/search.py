@@ -28,7 +28,7 @@ from datetime import datetime
 #   10 searches per minute
 #   200 searches per day
 
-class SearchCog(commands.Cog):
+class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqueda"):
     def __init__(self, bot):
         self.bot = bot
 
@@ -580,6 +580,7 @@ class SearchCog(commands.Cog):
     @commands.command(name = "name",
                     usage="Tienes que enviar una imágen/video anime junto a este comando. Funciona mejor con imagenes bien recortadas.",
                     description = "El bot te devolverá información dependiendo del tipo de imagen enviado.")
+    @commands.guild_only()
     @commands.cooldown(1, 5, commands.BucketType.member)
     async def find_name(self, msg):
         # If there is no attachment, we ignore it

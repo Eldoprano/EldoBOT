@@ -4,7 +4,7 @@ from discord.ext.commands import MissingPermissions, CheckFailure, CommandNotFou
 import time
 
 
-class OnCommandErrorCog(commands.Cog, name="on command error"):
+class OnCommandErrorCog(commands.Cog, name="on command error", command_attrs=dict(hidden=True)):
 	def __init__(self, bot):
 		self.bot = bot
         
@@ -15,13 +15,13 @@ class OnCommandErrorCog(commands.Cog, name="on command error"):
 			hour = round(error.retry_after/3600)
 			minute = round(error.retry_after/60)
 			if day > 0:
-				await ctx.send('This command has a cooldown, be sure to wait for '+str(day)+ "day(s)")
+				await ctx.send(content = 'Espera '+str(day)+ " día(s) más para usar nuevamente este comando.", delete_after=10)
 			elif hour > 0:
-				await ctx.send('This command has a cooldown, be sure to wait for '+str(hour)+ " hour(s)")
+				await ctx.send(content = 'Espera '+str(hour)+ " hora(s) más para usar nuevamente este comando.", delete_after=10)
 			elif minute > 0:
-				await ctx.send('This command has a cooldown, be sure to wait for '+ str(minute)+" minute(s)")
+				await ctx.send(content = 'Espera '+ str(minute)+" minuto(s) más para usar nuevamente este comando.", delete_after=10)
 			else:
-				await ctx.send(f'This command has a cooldown, be sure to wait for {error.retry_after:.2f} second(s)')
+				await ctx.send(content = f'Espera {error.retry_after:.2f} segundo(s) más para usar nuevamente este comando.', delete_after=10)
 		elif isinstance(error, CommandNotFound):
 			return
 		elif isinstance(error, MissingPermissions):

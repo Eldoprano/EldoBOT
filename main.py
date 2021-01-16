@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import json
+from pretty_help.pretty_help import PrettyHelp
 
 # Get configuration.json
 with open("configuration.json", "r") as config: 
@@ -17,14 +18,15 @@ class Greetings(commands.Cog):
 # Intents
 intents = discord.Intents.default()
 
-bot = commands.Bot(prefix, intents = intents)
+bot = commands.Bot(prefix, intents=intents, help_command=PrettyHelp())
 
 # Load cogs
 initial_extensions = [
 	"Cogs.onCommandError",
-	"Cogs.help",
 	"Cogs.ping",
-	"Cogs.search"
+	"Cogs.search",
+	"Cogs.confessions",
+	#"Cogs.help",
 ]
 
 print(initial_extensions)
