@@ -26,7 +26,8 @@ initial_extensions = [
 	"Cogs.ping",
 	"Cogs.search",
 	"Cogs.confessions",
-	#"Cogs.help",
+	"Cogs.instant_changes",
+	"Cogs.moderation",
 ]
 
 print(initial_extensions)

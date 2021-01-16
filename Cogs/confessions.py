@@ -137,7 +137,7 @@ class CogName(commands.Cog, name="Confesion", description="Comandos para mensaje
         await webhook_discord.delete()
         print("Confesión hecha!")
 
-    async def send_msg_as(user_to_imitate,channel,content,embed=False,user_that_sent=None,footer_msg=None,media=None):
+    async def send_msg_as(self, user_to_imitate,channel,content,embed=False,user_that_sent=None,footer_msg=None,media=None):
         # Filter mentions out of the content
         content = discord.utils.escape_mentions(content)
         pfp_to_imitate = await user_to_imitate.avatar_url.read()

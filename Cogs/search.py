@@ -950,6 +950,8 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
 
     @commands.Cog.listener()
     async def on_message(self,message):
+        if message.author.bot:
+            return
         if message.content.lower().find("name") != -1:
             await self.find_name(message)
 
