@@ -185,12 +185,8 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
             if response["docs"][0]["similarity"]!="":
                 simmilarityOfAnime = "{:04.2f}".format(response["docs"][0]["similarity"]*100.0)
             else:
-                print("similarity Not Found")
-                print(response)
                 return
         else:
-            print("similarity Not Found")
-            print(response)
             return
 
         msg_to_send = "Estoy {}% seguro de que la imágen es de un {} del año {} llamado **\"{}\"** , episodio {}.".format(simmilarityOfAnime,typeOfAnime,seasonOfAnime,nameOfAnime,episodeOfAnime)
@@ -227,12 +223,8 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         elif not embed:
             sent_message = await webhook_discord.send(content = content, username = user_to_imitate.display_name, wait = True)
         
-        print(content," Printed!")
-
         # Delete webhook
-        print(sent_message.id)
         await webhook_discord.delete()
-        print(sent_message.id)
         return sent_message
 
     def dbUserID_to_discordIDNameImage(self,id):
@@ -384,7 +376,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
             .add_field(name="Google:", value="De vez en cuando Google te ayudará a encontrarlo [link]("+google_url+").", inline=True)
             .add_field(name="tinyEYE:", value="También puedes probar tu suerte con TinyEYE [link]("+tinyEYE_url+").", inline=True)
             .add_field(name="No lograste encontrarlo?", value="En esta página puedes encontrar otras páginas más que te pueden ayudar con tu búsqueda [link]("+imageOPS_url+").", inline=False)
-            .add_field(name="Lograste encontrar la imagen?", value="Puedes ayudar a mejorar el bot enviando el nombre de la imagen con el comando:\n\n `e!id"\
+            .add_field(name="Lograste encontrar la imagen?", value="Puedes ayudar a mejorar el bot enviando el nombre de la imagen con el comando:\n\n `e!id "\
                 +str(idOfName)+"` *La imagen es del autor/anime...* \n\n[Si quieres también puedes adjuntar una imagen]", inline=True)
         )
 
@@ -411,7 +403,6 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
             video_file = await attachment.save(video_file)
         cam = cv2.VideoCapture("temp.mp4")
         ret,image_to_search = cam.read()
-        #print(type(image_to_search),type(ret),type(cam),type(video_file))
         return image_to_search
 
     # Lee el tipo de reacción. Si es positiva (y viene de un miembro nivel +3), aceptalo y actualiza la DB
@@ -454,7 +445,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 dictionary["description"] = "~~" + dictionary["description"] + \
                     "~~\n\nEsta respuesta fué marcada como incorrecta, pero puedes intentar buscarla por ti mism@ reaccionando al 🔎\n"
                 dictionary["description"] += "Lograste encontrar la imágen? Puedes ayudar a mejorar el bot enviando el nombre de la imagen con el comando:\n"
-                dictionary["description"] += "**e!id"+str(
+                dictionary["description"] += "**e!id "+str(
                     idOfName)+"** *La imagen es del autor/anime...* \n[Si quieres también puedes adjuntar una imagen]"
                 dictionary["footer"]["text"] = "Negado por " + user_that_confirmed + \
                     dictionary["footer"]["text"][dictionary["footer"]
@@ -484,7 +475,6 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
             else:
                 member_name = author_of_reaction.nick
             if payload.emoji.name == "✅" and actual_status <= 0:
-                print("Sending good news to DB")
                 # Get User ID
                 mySQL_query = "SELECT ID FROM "+self.DB_NAME + \
                     ".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
@@ -513,7 +503,6 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 await list_of_messages[position_to_change].edit(embed=embed_message)
 
             elif payload.emoji.name == "❌" and actual_status <= 0:
-                print("Sending bad news to DB")
                 # Get User ID
                 mySQL_query = "SELECT ID FROM "+self.DB_NAME + \
                     ".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
@@ -547,11 +536,9 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 message_of_reaction = await channel_of_reaction.fetch_message(payload.message_id)
                 embedded_msg_color = message_of_reaction.embeds[0].color.value
 
-                print(embedded_msg_color)
                 url_to_send = list_of_image_URL[position_to_change]
                 if embedded_msg_color == self.COLOR_GREEN:
                     url_to_send = message_of_reaction.embeds[0].image.url
-                    print(url_to_send)
 
                 await self.debugTraceMoe(list_of_image_URL[position_to_change], message_of_reaction)
                 # Change status or remove message from list
@@ -576,6 +563,78 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 embedHelper = self.embedSearchHelper(
                     url_to_search, list_of_DB_ids[position_to_change])
                 await list_of_messages[position_to_change].channel.send(embed=embedHelper, delete_after=1800)
+
+
+
+    @commands.command(name = "id",
+                usage="Envía el nombre del anime/H de la ID seleccionada junto a este comando. También puedes enviar imagenes",
+                description = "Cuando el bot no logra encontrar una imagen, te dará una ID, con la cuál puedes agregar el nombre si lo encuentras por tí mismo")
+    @commands.guild_only()
+    @commands.cooldown(1, 3, commands.BucketType.member)
+    # It get's called when the user wants to send the name of an image that wasn't found by the bot
+    # It sends and Embed message with the information that the user gaves us, and it saves it on our DB
+    async def userNameHelper(self, ctx, *args): #msg, id, user_text):
+        if not (args[0].isnumeric()):
+            return
+
+        msg = ctx.message
+        id = args[0]
+        user_text = " ".join(args[1:])
+        # Get User ID
+        mySQL_query = "SELECT FOUND, URL, CONFIRMED_BY FROM "+self.DB_NAME + \
+            ".NAME_IMAGE WHERE ID="+id+";"
+        self.mycursor.execute(mySQL_query)
+        tmp_user_DBid = self.mycursor.fetchall()
+        if(self.mycursor.rowcount==0):
+            await msg.channel.send(content="No pudimos encontrar la id "+id+" en nuestra base de datos. Si crees que esto es un error, menciona a mi creador @Eldoprano",delete_after=20)
+        elif(tmp_user_DBid[0][0]==1):
+            user_that_confirmed = self.dbUserID_to_discordIDNameImage(tmp_user_DBid[0][2])[1]
+            if(user_that_confirmed != None):
+                await msg.channel.send(content="Esta imagen ya fué aceptada como encontrada por: "+user_that_confirmed,delete_after=20)
+            else:
+                print("Error, user "+tmp_user_DBid[0][2]+" doesn't exist")
+        else:
+            image_url=None
+            if len(msg.attachments) > 0:
+                image_url = msg.attachments[0].url
+
+            # Update status of image
+            db_author_id = self.discordID_to_dbUserID(msg.author.id, msg.author)
+
+            mySQL_query = "UPDATE "+self.DB_NAME+".NAME_IMAGE SET FOUND=1, FOUND_BY_BOT=0, CONFIRMED_BY=%s \
+                WHERE ID="+id+";"
+            self.mycursor.execute(mySQL_query, (str(db_author_id),))
+            self.mydb.commit()
+
+            # Create a Name Result
+            if image_url==None:
+                mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_RESULT (USER_THAT_FOUND, TEXT) VALUES (%s, %s) "
+                self.mycursor.execute(mySQL_query, (str(db_author_id), user_text, ))
+                self.mydb.commit()
+            else:
+                mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_RESULT (USER_THAT_FOUND, TEXT, IMAGE_LINK) VALUES (%s, %s, %s) "
+                self.mycursor.execute(mySQL_query, (str(db_author_id), user_text, image_url))
+                self.mydb.commit()
+            
+            name_result_id = self.mycursor.lastrowid
+
+            # Link Name Result with Name Image
+            mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_LOG (IMAGE_ID, NAME_ID) VALUES (%s, %s) "
+            self.mycursor.execute(mySQL_query, (id, name_result_id))
+            self.mydb.commit()
+
+            # Create and send final Embedded
+            if image_url==None:
+                embed_to_send = discord.Embed(description=user_text, color=self.COLOR_GREEN).set_author(
+                    name=msg.author.name, icon_url=str(msg.author.avatar_url)).set_thumbnail(url = tmp_user_DBid[0][1])
+            else:
+                embed_to_send = discord.Embed(description=user_text, color=self.COLOR_GREEN).set_author(
+                    name=msg.author.name, icon_url=str(msg.author.avatar_url)).set_thumbnail(url = tmp_user_DBid[0][1]).set_image(url = image_url)
+
+            await msg.channel.send(embed=embed_to_send)
+            await msg.delete()
+
+
 
     @commands.command(name = "name",
                     usage="Tienes que enviar una imágen/video anime junto a este comando. Funciona mejor con imagenes bien recortadas.",
@@ -617,7 +676,6 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         else:
             image_to_search = requests.get(image_to_search_URL)
             image_to_search = Image.open(BytesIO(image_to_search.content))
-        print("Searching image: " + image_to_search_URL)
 
         image_to_search = image_to_search.convert('RGB')
         image_to_search.thumbnail((250,250), resample=Image.ANTIALIAS)
@@ -628,7 +686,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         # Check if it was already confirmed by a user
         hash_found = False
         mySQL_query = "SELECT HASH, FOUND, CONFIRMED_BY, FOUND_BY_BOT, ID FROM " + \
-            self.DB_NAME+".NAME_IMAGE WHERE CONFIRMED_BY IS NOT NULL;"
+            self.DB_NAME+".NAME_IMAGE"# WHERE CONFIRMED_BY IS NOT NULL;"
         self.mycursor.execute(mySQL_query)
         sql_result = self.mycursor.fetchall()
         pil_image = Image.open(imageData)
@@ -637,13 +695,35 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         text_in_footer = ""
         for row in sql_result:
             received_hash = imagehash.hex_to_hash(row[0])
-            if received_hash-image_hash < 40:
+            if received_hash-image_hash < 50:
                 image_DB_id = row[4]
-                print("A Hash was found!")
+
+                # In case it was already not found before, show the same ID as before
+                if row[2]==None:
+                    emb_preview_file = await msg.attachments[0].read()
+                    tmp_msg_image_url = await self.save_media_on_log(media = emb_preview_file,name="eldoBOT_ha_fallado.png",message="Este es una imagen que fallamos en encontrar con el bot")
+                    embed_sent = await self.send_msg_as(user_to_imitate=msg.author,
+                                                        channel=msg.channel, content=msg.clean_content,
+                                                        embed=True, media=tmp_msg_image_url,
+                                                        footer_msg="Nombre no encontrado... | e!id "+str(image_DB_id))
+
+                    await embed_sent.add_reaction("✖")
+                    await embed_sent.add_reaction("🔎")
+                    await msg.delete()
+
+          
+                    self.messages_to_react.append([embed_sent,image_DB_id,tmp_msg_image_url])
+                    self.status_messages_to_react.append(0)
+
+                    if len(self.messages_to_react)>50:
+                        self.messages_to_react.pop(0)
+                        self.status_messages_to_react.pop(0)
+                    
+                    return
+
                 # If it was found, but not by the bot, it means that a user added a found
                 # message, so we search for that data on the DB to show it
                 if(row[3]==0 and row[1]==1): 
-                    print("found, but not by the bot")
                     mySQL_query = "SELECT NAME_RESULT.USER_THAT_FOUND, NAME_RESULT.TEXT, NAME_RESULT.IMAGE_LINK, NAME_IMAGE.URL "
                     mySQL_query += "FROM eldoBOT_DB.NAME_IMAGE INNER JOIN (NAME_RESULT INNER JOIN NAME_LOG on "
                     mySQL_query += "NAME_RESULT.ID=NAME_LOG.NAME_ID) ON NAME_LOG.IMAGE_ID = NAME_IMAGE.ID "
@@ -671,7 +751,6 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
 
                 # If the image was found by the bot before, we show who confirmed or denied it
                 elif(row[3]==1):
-                    print("found by the bot before")
                     mySQL_query = "SELECT USERNAME FROM "+self.DB_NAME+".USER WHERE ID="+str(row[2])+";"
                     self.mycursor.execute(mySQL_query)
                     tmp_user_DBid = self.mycursor.fetchall()
@@ -857,7 +936,6 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                         tmp_msg_image_url = await self.save_media_on_log(media = emb_preview_file.content,name="eldoBOT_temp_preview_File.png",message=emb_description)
                         embed_to_send.set_image(url=tmp_msg_image_url)
                 # Send message
-                print("Sending message to channel")
                 embed_sent = await msg.channel.send(embed=embed_to_send)
 
                 # Save user sended Image to our log channel
@@ -907,7 +985,6 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 tmp_user_DBid = tmp_user_DBid[0][0]
             
             if not hash_found:
-                print("hash wasn't found apparently")
                 mySQL_query = "SELECT ID FROM "+self.DB_NAME+".GUILD WHERE GUILD_ID="+str(msg.guild.id)+";"
                 self.mycursor.execute(mySQL_query)
                 tmp_guild_DBid = self.mycursor.fetchall()[0][0]
@@ -930,7 +1007,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                     embed_sent = await self.send_msg_as(user_to_imitate=msg.author,\
                         channel=msg.channel,content=msg.clean_content,
                         embed=True, media=tmp_msg_image_url, 
-                        footer_msg="Nombre no encontrado... | e!id"+str(image_DB_id))
+                        footer_msg="Nombre no encontrado... | e!id "+str(image_DB_id))
 
                     await embed_sent.add_reaction("✖")
                     await embed_sent.add_reaction("🔎")

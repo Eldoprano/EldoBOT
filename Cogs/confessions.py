@@ -58,7 +58,7 @@ class CogName(commands.Cog, name="Confesion", description="Comandos para mensaje
 
         tmp_apodo = tmp_msg.replace("e!apodo ", "", 1)
         if tmp_apodo == "":
-            await msg.channel.send(content="Tienes que escribit tu apodo después del comando **e!apodo **", delete_after=3)
+            await msg.channel.send(content="Tienes que escribir tu apodo después del comando **e!apodo **", delete_after=3)
         elif tmp_user_id in self.anon_list:
             self.anon_list[tmp_user_id]["apodo"] = tmp_apodo
             await msg.channel.send(content="Apodo cambiado correctamente", delete_after=2)
@@ -130,6 +130,8 @@ class CogName(commands.Cog, name="Confesion", description="Comandos para mensaje
             tmp_avatar = self.ANON_DEFAULT_PFP
             tmp_author = "Usuario Anónimo #" + hash_adition
 
+        msg_to_say = msg_to_say.replace("everyone", "everynyan")
+        msg_to_say = msg_to_say.replace("here", "һere")
         webhook_discord = await tmp_channel.create_webhook(name=tmp_author, reason="EldoBOT: Temp-webhook Usuario-anónimo")
         await webhook_discord.send(content=msg_to_say, username=tmp_author, avatar_url=tmp_avatar, allowed_mentions=None)
         

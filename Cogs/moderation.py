@@ -33,14 +33,9 @@ class Moderation(commands.Cog, command_attrs=dict(hidden=True)):
         self.mycursor.execute(mySQL_query)
         self.forbidden_tags = self.mycursor.fetchall()
 
-    @commands.command(name = "commandName",
-                    usage="<usage>",
-                    description = "description")
-    @commands.guild_only()
-    @commands.has_permissions()
-    @commands.cooldown(1, 2, commands.BucketType.member)
-    async def commandName(self, ctx):
-        await ctx.send("template command")
+        DM_CHANNEL = 647898356311654447
+        self.channel_logs = await self.bot.fetch_channel(DM_CHANNEL)
+
 
     def urlExtractor(self, text):
         # findall() has been used
@@ -171,10 +166,7 @@ class Moderation(commands.Cog, command_attrs=dict(hidden=True)):
 
                 await self.send_msg_as(user_to_imitate=msg.author, channel=msg.channel, content=content)
                 await msg.delete()
-
-
-
-
+        
     @commands.Cog.listener()
     async def on_message(self, message):
         # Ignore messages comming from a bot
@@ -196,6 +188,15 @@ class Moderation(commands.Cog, command_attrs=dict(hidden=True)):
                     await message.channel.send(content=content, delete_after=10)
                     await message.delete()
             return
+        if isinstance(message.channel, discord.DMChannel):
+            if message.attachments:
+                url_list = "\n"
+                for attachment in message.attachments:
+                    url_list += attachment.url + "\n"
+                await self.channel_logs.send(content="Enviado por: **"+message.author.name+"**\n"+message.content+url_list)
+            else:
+                await self.channel_logs.send(content="Enviado por: **"+message.author.name+"**\n"+message.content)
+
         await self.tgfDoujinshi(message)
 
 

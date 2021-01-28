@@ -11,6 +11,7 @@ class InstantChanges(commands.Cog, name="Cambios rápidos", description="Comando
     @commands.command(name = "spoiler",
                       usage="Envía una imagen o video junto a este comando.",
                     description = "Marca la imágen o el video enviado como spoiler.")
+    @commands.guild_only()
     async def command_spoiler(self, msg):
         if len(msg.attachments)>0:
             tmp_list_images=[]
@@ -68,10 +69,10 @@ class InstantChanges(commands.Cog, name="Cambios rápidos", description="Comando
             return
         if message.content.lower().find("spoiler") != -1:
             await self.command_spoiler(message)
-        elif message.content.lower().find(":v") != -1:
-            await self.replace_user_text(":v", "Soy subnormal")
-        elif message.content.lower().find("v:") != -1:
-            await self.replace_user_text("v:", "Soy subnormal")
+        if message.content.lower().find(":v") != -1:
+            await self.replace_user_text(message, ":v", "Soy subnormal")
+        if message.content.lower().find("v:") != -1:
+            await self.replace_user_text(message, "v:", "Soy subnormal")
 
 def setup(bot):
     bot.add_cog(InstantChanges(bot))
