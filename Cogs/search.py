@@ -576,8 +576,9 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
     async def userNameHelper(self, ctx, *args): #msg, id, user_text):
         if not (args[0].isnumeric()):
             return
-
         msg = ctx.message
+        if len(args) < 2:
+            await msg.channel.send(content="Tienes que enviar el nombre del H/anime junto a este comando")
         id = args[0]
         user_text = " ".join(args[1:])
         # Get User ID
@@ -693,14 +694,18 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         image_hash = imagehash.phash(pil_image,16)
         image_DB_id = None
         text_in_footer = ""
+        difference_between_hashes = -1
+        real_db_id = -1
         for row in sql_result:
             received_hash = imagehash.hex_to_hash(row[0])
             if received_hash-image_hash < 50:
+                difference_between_hashes = received_hash-image_hash
                 image_DB_id = row[4]
 
                 # In case it was already not found before, show the same ID as before
                 if row[2]==None:
-                    emb_preview_file = await msg.attachments[0].read()
+                    real_db_id = image_DB_id
+                    """emb_preview_file = await msg.attachments[0].read()
                     tmp_msg_image_url = await self.save_media_on_log(media = emb_preview_file,name="eldoBOT_ha_fallado.png",message="Este es una imagen que fallamos en encontrar con el bot")
                     embed_sent = await self.send_msg_as(user_to_imitate=msg.author,
                                                         channel=msg.channel, content=msg.clean_content,
@@ -714,12 +719,12 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
           
                     self.messages_to_react.append([embed_sent,image_DB_id,tmp_msg_image_url])
                     self.status_messages_to_react.append(0)
-
                     if len(self.messages_to_react)>50:
                         self.messages_to_react.pop(0)
                         self.status_messages_to_react.pop(0)
                     
                     return
+                    """
 
                 # If it was found, but not by the bot, it means that a user added a found
                 # message, so we search for that data on the DB to show it
@@ -767,6 +772,8 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 
                 else:
                     print("Some strange things are happening with our DB")
+
+                break
 
         
         # Variables for the Embedded message:
@@ -854,7 +861,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                         if "title_english" in result_data:
                             emb_name = result_data["title_english"]
                         emb_name = result_data["title"]
-                    except Exception as e: print(e)
+                    except Exception as e: pass#print(e)
                 if emb_artist == "":
                     try: 
                         if type(result_data["creator"])==type([]):
@@ -863,10 +870,10 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                             emb_artist = emb_artist[:-2]
                         else:
                             emb_artist = result_data["creator"]
-                    except Exception as e: print(e)
+                    except Exception as e: pass#print(e)
                 if emb_character == "":
                     try: emb_character = result_data["characters"]
-                    except Exception as e: print(e)
+                    except Exception as e: pass#print(e)
                 if emb_link == "":
                     try: 
                         if "mal_id" in result_data:
@@ -876,17 +883,17 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                             emb_link = result_data["ext_urls"][0]
                         else:
                             emb_link = result_data["ext_urls"]
-                    except Exception as e: print(e)
+                    except Exception as e: pass#print(e)
                 if emb_link == "":
                     try: 
                         if type(result_data["ext_urls"])==type([]):
                             emb_link = result_data["ext_urls"][0]
                         else:
                             emb_link = result_data["ext_urls"]
-                    except Exception as e: print(e)
+                    except Exception as e: pass#print(e)
                 if emb_name == "":
                     try: emb_name = result_data["eng_name"]
-                    except Exception as e: print(e)
+                    except Exception as e: pass#print(e)
                 if emb_episode == "" and "episode" in result_data:
                     emb_episode = result_data["episode"]
 
@@ -985,21 +992,25 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 tmp_user_DBid = tmp_user_DBid[0][0]
             
             if not hash_found:
-                mySQL_query = "SELECT ID FROM "+self.DB_NAME+".GUILD WHERE GUILD_ID="+str(msg.guild.id)+";"
-                self.mycursor.execute(mySQL_query)
-                tmp_guild_DBid = self.mycursor.fetchall()[0][0]
+                if difference_between_hashes > 30 or difference_between_hashes == -1:
+                    mySQL_query = "SELECT ID FROM "+self.DB_NAME+".GUILD WHERE GUILD_ID="+str(msg.guild.id)+";"
+                    self.mycursor.execute(mySQL_query)
+                    tmp_guild_DBid = self.mycursor.fetchall()[0][0]
 
-                mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_IMAGE (HASH, URL, FILE_NAME, EXTENSION, GUILD_THAT_ASKED, USER_THAT_ASKED) VALUES (%s, %s, %s, %s, %s, %s) "
-                try:
-                    self.mycursor.execute(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
-                    self.mydb.commit()
-                except Exception as e:
-                    print(e)
+                    mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_IMAGE (HASH, URL, FILE_NAME, EXTENSION, GUILD_THAT_ASKED, USER_THAT_ASKED) VALUES (%s, %s, %s, %s, %s, %s) "
+                    try:
+                        self.mycursor.execute(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
+                        self.mydb.commit()
+                    except Exception as e:
+                        print(e)
 
-                global messages_to_react
-                global status_messages_to_react
+                    global messages_to_react
+                    global status_messages_to_react
 
-                image_DB_id = self.mycursor.lastrowid
+                    image_DB_id = self.mycursor.lastrowid
+                else:
+                    if real_db_id != -1:
+                        image_DB_id = real_db_id
 
                 # Send the message that we failed to find the name, together with
                 # the image ID as footer. We moved it here to get the DB ID
