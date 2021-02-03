@@ -13,11 +13,7 @@ from unidecode import unidecode
 import urllib.parse
 import json
 from datetime import datetime
-
-
-
-
-
+import re
 
 # TraceMOE Limits:
 #   10 searches per minute
@@ -102,23 +98,11 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
     def tracemoe_video_preview(self, response, index=0):
         return self.tracemoe_image_preview(response, index, "preview.php")
 
-    @commands.command(name = "buscar",
-                    aliases=["busca"],
-                    usage="Envía un screenshot de un anime/H junto a este comando",
-                    description = "El bot te devolverá el nombre y un breve video para entender el contexto")
-    @commands.guild_only()
-    @commands.cooldown(1, 5, commands.BucketType.member)
-    async def buscar(self, ctx):
-        # Check if message has an attachment, ignore if not
-        if len(ctx.message.attachments)>0:
-            image_to_search_URL = ctx.message.attachments[0].url
-        else:
-            return
-
+    async def tracemoe_search_and_send(self, url, msg):
         fileToSend = None
         videoFound = False
-        await ctx.trigger_typing()
-        response = self.tracemoe_search(image_to_search_URL)
+        await msg.channel.trigger_typing()
+        response = self.tracemoe_search(url)
         for i, result in enumerate(response["docs"]):
             # If we already searched the 3 first videos, we skip
             # It's a strange solution, yeah, but i don't want to implement something better :P
@@ -191,7 +175,23 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
 
         msg_to_send = "Estoy {}% seguro de que la imágen es de un {} del año {} llamado **\"{}\"** , episodio {}.".format(simmilarityOfAnime,typeOfAnime,seasonOfAnime,nameOfAnime,episodeOfAnime)
 
-        await ctx.send(content = msg_to_send,file = fileToSend, reference = ctx.message, mention_author=True)
+        await msg.channel.send(content = msg_to_send,file = fileToSend, reference = msg, mention_author=True)
+
+
+    @commands.command(name = "buscar",
+                    aliases=["busca"],
+                    usage="Envía un screenshot de un anime/H junto a este comando",
+                    description = "El bot te devolverá el nombre y un breve video para entender el contexto")
+    @commands.guild_only()
+    @commands.cooldown(1, 5, commands.BucketType.member)
+    async def buscar(self, ctx):
+        # Check if message has an attachment, ignore if not
+        if len(ctx.message.attachments)>0:
+            url = ctx.message.attachments[0].url
+            await tracemoe_search_and_send(url, ctx.message)
+        else:
+            return
+
 ##################
 ## name Command ##
 ##################
@@ -540,7 +540,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 if embedded_msg_color == self.COLOR_GREEN:
                     url_to_send = message_of_reaction.embeds[0].image.url
 
-                await self.debugTraceMoe(list_of_image_URL[position_to_change], message_of_reaction)
+                await self.tracemoe_search_and_send(url_to_send, message_of_reaction)
                 # Change status or remove message from list
                 if(actual_status == 1):
                     self.messages_to_react.pop(position_to_change)
@@ -644,8 +644,12 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
     @commands.cooldown(1, 5, commands.BucketType.member)
     async def find_name(self, msg):
         # If there is no attachment, we ignore it
+        links = None
         if len(msg.attachments)==0:
-            return 
+            link_regex = re.compile("((https?):((//)|(\\\\))+([\w\d:#@%/;$()~_?\+-=\\\.&](#!)?)*)", re.DOTALL)
+            links = re.findall(link_regex, msg.content)
+            if len(links)==0:
+                return 
 
         # Check if we can send names to this channel
         can_i_send_message = False
@@ -667,11 +671,14 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
 
         async with msg.channel.typing():
             # Get image URL
-            image_to_search_URL = msg.attachments[0].url
+            if links != None and len(links)>0:
+                image_to_search_URL = links[0][0]
+            else:
+                image_to_search_URL = msg.attachments[0].url
             emb_user = msg.author.name
 
         # If the image is a... video, then we get the first frame
-        if msg.attachments[0].filename.find(".mp4")!=-1:
+        if links == None or len(links)==0 and msg.attachments[0].filename.find(".mp4")!=-1:
             image_to_search = await self.get_video_frame(msg.attachments[0])
             image_to_search = Image.fromarray(image_to_search, 'RGB')
         else:
@@ -771,7 +778,8 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                         emb_color = 15597568
                 
                 else:
-                    print("Some strange things are happening with our DB")
+                    pass
+                    #print("Some strange things are happening with our DB")
 
                 break
 
@@ -946,7 +954,11 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 embed_sent = await msg.channel.send(embed=embed_to_send)
 
                 # Save user sended Image to our log channel
-                emb_preview_file = await msg.attachments[0].read()
+                if links!=None and len(links)>0:
+                    emb_preview_file = requests.get(links[0][0])
+                    emb_preview_file = emb_preview_file.content
+                else:
+                    emb_preview_file = await msg.attachments[0].read()
                 tmp_msg_image_url = await self.save_media_on_log(media = emb_preview_file,name="eldoBOT_temp_File.png",message="Esta es una imagen que un usuario buscó")
                 image_to_search_URL = tmp_msg_image_url
 
@@ -966,7 +978,11 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                         writer.write(str(result_data))
                     await msg.add_reaction("➖")
                 else:
-                    emb_preview_file = await msg.attachments[0].read()
+                    if links!=None and len(links)>0:
+                        emb_preview_file = requests.get(links[0][0])
+                        emb_preview_file = emb_preview_file.content
+                    else:
+                        emb_preview_file = await msg.attachments[0].read()
                     tmp_msg_image_url = await self.save_media_on_log(media = emb_preview_file,name="eldoBOT_ha_fallado.png",message="Este es una imagen que fallamos en encontrar con el bot")
                     image_to_search_URL = tmp_msg_image_url
                     # We send the webhook after we add the image to the DB
