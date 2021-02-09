@@ -25,6 +25,43 @@ import re
 #   200 searches per day
 
 class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqueda"):
+
+    def connect_to_DB(self):
+        # Get some variables from the magic Pickle
+        #  saddly backwards compatible...
+        keys = pickle.load(open("keys.pkl", "rb" ))
+
+        ## Connect to Database
+        self.mydb = mysql.connector.connect(
+            host=keys["Database"]["host"],
+            user=keys["Database"]["user"],
+            passwd=keys["Database"]["passwd"],
+            database=keys["Database"]["database"])
+        self.mycursor = self.mydb.cursor()
+
+        self.sauceNAO_TOKEN = keys["sauceNAO_TOKEN"]
+        self.DB_NAME = keys["Database"]["database"]
+
+    # This was made in case Database goes down and we need to reconnect
+    def execute_sql(self, sql_command, params = None):
+        try:
+            self.mycursor.execute(sql_command, params)
+        except Exception as e:
+            self.connect_to_DB()
+            self.mycursor.execute(sql_command, params)
+            print(e)
+        return self.mycursor.fetchall()
+
+        
+    def execute_sql_commit(self, sql_command, params = None):
+        try:
+            self.mycursor.execute(sql_command, params)
+        except Exception as e:
+            self.connect_to_DB()
+            self.mycursor.execute(sql_command, params)
+            print(e)
+        self.mydb.commit()
+
     def __init__(self, bot):
         self.bot = bot
 
@@ -52,15 +89,16 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         keys = pickle.load(open("keys.pkl", "rb" ))
 
         ## Connect to Database
-        self.mydb = mysql.connector.connect(
-            host=keys["Database"]["host"],
-            user=keys["Database"]["user"],
-            passwd=keys["Database"]["passwd"],
-            database=keys["Database"]["database"])
-        self.mycursor = self.mydb.cursor()
+        self.connect_to_DB()
+        #self.mydb = mysql.connector.connect(
+        #    host=keys["Database"]["host"],
+        #    user=keys["Database"]["user"],
+        #    passwd=keys["Database"]["passwd"],
+        #    database=keys["Database"]["database"])
+        #self.mycursor = self.mydb.cursor()
 
-        self.sauceNAO_TOKEN = keys["sauceNAO_TOKEN"]
-        self.DB_NAME = keys["Database"]["database"]
+        #self.sauceNAO_TOKEN = keys["sauceNAO_TOKEN"]
+        #self.DB_NAME = keys["Database"]["database"]
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -188,7 +226,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         # Check if message has an attachment, ignore if not
         if len(ctx.message.attachments)>0:
             url = ctx.message.attachments[0].url
-            await tracemoe_search_and_send(url, ctx.message)
+            await self.tracemoe_search_and_send(url, ctx.message)
         else:
             return
 
@@ -229,8 +267,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
 
     def dbUserID_to_discordIDNameImage(self,id):
         mySQL_query = "SELECT USER_ID, USERNAME, IMAGE_URL FROM "+self.DB_NAME+".USER WHERE ID="+str(id)+";"
-        self.mycursor.execute(mySQL_query)
-        tmp_user_DB = self.mycursor.fetchall()
+        tmp_user_DB = self.execute_sql(mySQL_query)
         if (self.mycursor.rowcount==0):
             return None
         else:
@@ -238,16 +275,14 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
 
     def addUserToDB(self, author):
         mySQL_query = "INSERT INTO " + self.DB_NAME + ".USER (USER_ID ,USERNAME, IMAGE_URL) VALUES (%s, %s, %s);"
-        self.mycursor.execute(mySQL_query, (str(author.id), unidecode(author.name).replace(
+        self.execute_sql_commit(mySQL_query, (str(author.id), unidecode(author.name).replace(
             "DROP", "DRO_P").replace("drop", "dro_p")[:32].replace("*", "+"), # Lame&unnecesary SQL-Injection protection
             str(author.avatar_url)[:str(author.avatar_url).find("?")]))
-        self.mydb.commit()
         return self.mycursor.lastrowid
 
     def discordID_to_dbUserID(self, id,author=None):
         mySQL_query = "SELECT ID FROM "+self.DB_NAME+".USER WHERE USER_ID="+str(id)+";"
-        self.mycursor.execute(mySQL_query)
-        tmp_user_DBid = self.mycursor.fetchall()
+        tmp_user_DBid = self.execute_sql(mySQL_query)
         if(self.mycursor.rowcount==0):
             if author!=None:
                 return self.addUserToDB(author)
@@ -258,8 +293,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
 
     def discordGuildID_to_dbGuildID(self, id):
         mySQL_query = "SELECT ID FROM "+self.DB_NAME+".GUILD WHERE GUILD_ID="+str(id)+";"
-        self.mycursor.execute(mySQL_query)
-        tmp_guild_DBid = self.mycursor.fetchall()
+        tmp_guild_DBid = self.execute_sql(mySQL_query)
         if(self.mycursor.rowcount==0):
             return None
         else:
@@ -284,19 +318,16 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         discord_guild_id = str(self.discordGuildID_to_dbGuildID(msg.guild.id))
 
         mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_IMAGE (HASH, URL, FILE_NAME, EXTENSION, GUILD_THAT_ASKED, USER_THAT_ASKED, FOUND, FOUND_BY_BOT, CONFIRMED_BY) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
-        self.mycursor.execute(mySQL_query, (image_hash, str(msg.attachments[0].url),"HASH.png", "png", discord_guild_id, discord_user_id,"1","0",discord_user_id,))
-        self.mydb.commit()
+        self.execute_sql_commit(mySQL_query, (image_hash, str(msg.attachments[0].url),"HASH.png", "png", discord_guild_id, discord_user_id,"1","0",discord_user_id,))
         name_image_id = self.mycursor.lastrowid
 
         mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_RESULT (USER_THAT_FOUND, TEXT) VALUES (%s, %s) "
-        self.mycursor.execute(mySQL_query, (discord_user_id, user_text, ))
-        self.mydb.commit()
+        self.execute_sql_commit(mySQL_query, (discord_user_id, user_text, ))
         name_result_id = self.mycursor.lastrowid
 
         # Link Name Result with Name Image
         mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_LOG (IMAGE_ID, NAME_ID) VALUES (%s, %s) "
-        self.mycursor.execute(mySQL_query, (name_image_id, name_result_id))
-        self.mydb.commit()
+        self.execute_sql_commit(mySQL_query, (name_image_id, name_result_id))
 
         await msg.channel.send(content="Imágen añadida!",delete_after=7)
 
@@ -308,8 +339,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         # Get User ID
         mySQL_query = "SELECT FOUND, URL, CONFIRMED_BY FROM "+self.DB_NAME + \
             ".NAME_IMAGE WHERE ID="+id+";"
-        self.mycursor.execute(mySQL_query)
-        tmp_user_DBid = self.mycursor.fetchall()
+        tmp_user_DBid = self.execute_sql(mySQL_query)
         if(self.mycursor.rowcount==0):
             await msg.channel.send(content="No pudimos encontrar la id "+id+" en nuestra base de datos. Si crees que esto es un error, menciona a mi creador @Eldoprano",delete_after=20)
         elif(tmp_user_DBid[0][0]==1):
@@ -328,25 +358,21 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
 
             mySQL_query = "UPDATE "+self.DB_NAME+".NAME_IMAGE SET FOUND=1, FOUND_BY_BOT=0, CONFIRMED_BY=%s \
                 WHERE ID="+id+";"
-            self.mycursor.execute(mySQL_query, (str(db_author_id),))
-            self.mydb.commit()
+            self.execute_sql_commit(mySQL_query, (str(db_author_id),))
 
             # Create a Name Result
             if image_url==None:
                 mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_RESULT (USER_THAT_FOUND, TEXT) VALUES (%s, %s) "
-                self.mycursor.execute(mySQL_query, (str(db_author_id), user_text, ))
-                self.mydb.commit()
+                self.execute_sql_commit(mySQL_query, (str(db_author_id), user_text, ))
             else:
                 mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_RESULT (USER_THAT_FOUND, TEXT, IMAGE_LINK) VALUES (%s, %s, %s) "
-                self.mycursor.execute(mySQL_query, (str(db_author_id), user_text, image_url))
-                self.mydb.commit()
+                self.execute_sql_commit(mySQL_query, (str(db_author_id), user_text, image_url))
             
             name_result_id = self.mycursor.lastrowid
 
             # Link Name Result with Name Image
             mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_LOG (IMAGE_ID, NAME_ID) VALUES (%s, %s) "
-            self.mycursor.execute(mySQL_query, (id, name_result_id))
-            self.mydb.commit()
+            self.execute_sql_commit(mySQL_query, (id, name_result_id))
 
             # Create and send final Embedded
             if image_url==None:
@@ -478,8 +504,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 # Get User ID
                 mySQL_query = "SELECT ID FROM "+self.DB_NAME + \
                     ".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
-                self.mycursor.execute(mySQL_query)
-                tmp_user_DBid = self.mycursor.fetchall()
+                tmp_user_DBid = self.execute_sql(mySQL_query)
                 if(self.mycursor.rowcount == 0):
                     tmp_user_DBid = self.addUserToDB(author_of_reaction)
                 else:
@@ -488,8 +513,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 # Update status of message
                 mySQL_query = "UPDATE "+self.DB_NAME+".NAME_IMAGE SET FOUND=1, FOUND_BY_BOT=1, CONFIRMED_BY=%s \
                     WHERE ID="+str(list_of_DB_ids[position_to_change])+";"
-                self.mycursor.execute(mySQL_query, (tmp_user_DBid,))
-                self.mydb.commit()
+                self.execute_sql_commit(mySQL_query, (tmp_user_DBid,))
                 # Change status or remove message from list
                 if(actual_status == -1):
                     self.messages_to_react.pop(position_to_change)
@@ -506,8 +530,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 # Get User ID
                 mySQL_query = "SELECT ID FROM "+self.DB_NAME + \
                     ".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
-                self.mycursor.execute(mySQL_query)
-                tmp_user_DBid = self.mycursor.fetchall()
+                tmp_user_DBid = self.execute_sql(mySQL_query)
                 if(self.mycursor.rowcount == 0):
                     tmp_user_DBid = self.addUserToDB(author_of_reaction)
                 else:
@@ -516,8 +539,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 # Update status of message
                 mySQL_query = "UPDATE "+self.DB_NAME+".NAME_IMAGE SET FOUND_BY_BOT=0, CONFIRMED_BY=%s \
                     WHERE ID="+str(list_of_DB_ids[position_to_change])+";"
-                self.mycursor.execute(mySQL_query, (tmp_user_DBid,))
-                self.mydb.commit()
+                self.execute_sql_commit(mySQL_query, (tmp_user_DBid,))
                 # Change status or remove message from list
                 if(actual_status == -1):
                     self.messages_to_react.pop(position_to_change)
@@ -557,8 +579,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 mySQL_query = "SELECT URL FROM "+self.DB_NAME + \
                     ".NAME_IMAGE WHERE ID=" + \
                     str(list_of_DB_ids[position_to_change])+";"
-                self.mycursor.execute(mySQL_query)
-                url_to_search = self.mycursor.fetchall()
+                url_to_search = self.execute_sql(mySQL_query)
                 url_to_search = url_to_search[0][0]
                 embedHelper = self.embedSearchHelper(
                     url_to_search, list_of_DB_ids[position_to_change])
@@ -584,8 +605,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         # Get User ID
         mySQL_query = "SELECT FOUND, URL, CONFIRMED_BY FROM "+self.DB_NAME + \
             ".NAME_IMAGE WHERE ID="+id+";"
-        self.mycursor.execute(mySQL_query)
-        tmp_user_DBid = self.mycursor.fetchall()
+        tmp_user_DBid = self.execute_sql(mySQL_query)
         if(self.mycursor.rowcount==0):
             await msg.channel.send(content="No pudimos encontrar la id "+id+" en nuestra base de datos. Si crees que esto es un error, menciona a mi creador @Eldoprano",delete_after=20)
         elif(tmp_user_DBid[0][0]==1):
@@ -604,25 +624,21 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
 
             mySQL_query = "UPDATE "+self.DB_NAME+".NAME_IMAGE SET FOUND=1, FOUND_BY_BOT=0, CONFIRMED_BY=%s \
                 WHERE ID="+id+";"
-            self.mycursor.execute(mySQL_query, (str(db_author_id),))
-            self.mydb.commit()
+            self.execute_sql_commit(mySQL_query, (str(db_author_id),))
 
             # Create a Name Result
             if image_url==None:
                 mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_RESULT (USER_THAT_FOUND, TEXT) VALUES (%s, %s) "
-                self.mycursor.execute(mySQL_query, (str(db_author_id), user_text, ))
-                self.mydb.commit()
+                self.execute_sql_commit(mySQL_query, (str(db_author_id), user_text, ))
             else:
                 mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_RESULT (USER_THAT_FOUND, TEXT, IMAGE_LINK) VALUES (%s, %s, %s) "
-                self.mycursor.execute(mySQL_query, (str(db_author_id), user_text, image_url))
-                self.mydb.commit()
+                self.execute_sql_commit(mySQL_query, (str(db_author_id), user_text, image_url))
             
             name_result_id = self.mycursor.lastrowid
 
             # Link Name Result with Name Image
             mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_LOG (IMAGE_ID, NAME_ID) VALUES (%s, %s) "
-            self.mycursor.execute(mySQL_query, (id, name_result_id))
-            self.mydb.commit()
+            self.execute_sql_commit(mySQL_query, (id, name_result_id))
 
             # Create and send final Embedded
             if image_url==None:
@@ -695,8 +711,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         hash_found = False
         mySQL_query = "SELECT HASH, FOUND, CONFIRMED_BY, FOUND_BY_BOT, ID FROM " + \
             self.DB_NAME+".NAME_IMAGE"# WHERE CONFIRMED_BY IS NOT NULL;"
-        self.mycursor.execute(mySQL_query)
-        sql_result = self.mycursor.fetchall()
+        sql_result = self.execute_sql(mySQL_query)
         pil_image = Image.open(imageData)
         image_hash = imagehash.phash(pil_image,16)
         image_DB_id = None
@@ -740,8 +755,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                     mySQL_query += "FROM eldoBOT_DB.NAME_IMAGE INNER JOIN (NAME_RESULT INNER JOIN NAME_LOG on "
                     mySQL_query += "NAME_RESULT.ID=NAME_LOG.NAME_ID) ON NAME_LOG.IMAGE_ID = NAME_IMAGE.ID "
                     mySQL_query += "WHERE NAME_IMAGE.ID = %s ORDER BY NAME_RESULT.DATE DESC;"
-                    self.mycursor.execute(mySQL_query,(row[4],))
-                    tmp_user_DBid = self.mycursor.fetchall()
+                    tmp_user_DBid = self.execute_sql(mySQL_query,(row[4],))
                     # Small error handling. This should not happen
                     if self.mycursor.rowcount==0:
                         print("Huston, we have a problem with the HASH/USERMADE search")
@@ -764,8 +778,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 # If the image was found by the bot before, we show who confirmed or denied it
                 elif(row[3]==1):
                     mySQL_query = "SELECT USERNAME FROM "+self.DB_NAME+".USER WHERE ID="+str(row[2])+";"
-                    self.mycursor.execute(mySQL_query)
-                    tmp_user_DBid = self.mycursor.fetchall()
+                    tmp_user_DBid = self.execute_sql(mySQL_query)
 
                     hash_found = True
                     if(row[1]==1):
@@ -1000,8 +1013,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
 
 
             mySQL_query = "SELECT ID FROM "+self.DB_NAME+".USER WHERE USER_ID="+str(msg.author.id)+";"
-            self.mycursor.execute(mySQL_query)
-            tmp_user_DBid = self.mycursor.fetchall()
+            tmp_user_DBid = self.execute_sql(mySQL_query)
             if(self.mycursor.rowcount==0):
                 tmp_user_DBid = self.addUserToDB(msg.author)
             else:
@@ -1010,13 +1022,11 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
             if not hash_found:
                 if difference_between_hashes > 30 or difference_between_hashes == -1:
                     mySQL_query = "SELECT ID FROM "+self.DB_NAME+".GUILD WHERE GUILD_ID="+str(msg.guild.id)+";"
-                    self.mycursor.execute(mySQL_query)
-                    tmp_guild_DBid = self.mycursor.fetchall()[0][0]
+                    tmp_guild_DBid = self.execute_sql(mySQL_query)[0][0]
 
                     mySQL_query = "INSERT INTO "+self.DB_NAME+".NAME_IMAGE (HASH, URL, FILE_NAME, EXTENSION, GUILD_THAT_ASKED, USER_THAT_ASKED) VALUES (%s, %s, %s, %s, %s, %s) "
                     try:
-                        self.mycursor.execute(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
-                        self.mydb.commit()
+                        self.execute_sql_commit(mySQL_query, (image_hash, str(image_to_search_URL),"HASH.png", "png", tmp_guild_DBid, tmp_user_DBid))
                     except Exception as e:
                         print(e)
 
