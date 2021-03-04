@@ -14,6 +14,7 @@ import urllib.parse
 import json
 from datetime import datetime
 import re
+import datetime
 
 # TraceMOE Limits:
 #   10 searches per minute
@@ -176,22 +177,21 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
             typeOfAnime = "anime"
 
         # Get Anime tittle
-        if "title_english" in response["docs"][0]:
-            if response["docs"][0]["title_english"]!="":
-                nameOfAnime = response["docs"][0]["title_english"]
-            else:
-                nameOfAnime = response["docs"][0]["anime"]
+        if "title_english" in response["docs"][0] and response["docs"][0]["title_english"] != None:
+            nameOfAnime = response["docs"][0]["title_english"]
+        elif "title_romaji" in response["docs"][0] and response["docs"][0]["title_romaji"] != None:
+            nameOfAnime = response["docs"][0]["title_romaji"]
         else:
             nameOfAnime = response["docs"][0]["anime"]
 
         # Get Anime episode
-        if "episode" in response["docs"][0]:
+        if "episode" in response["docs"][0] and response["docs"][0]["episode"] != None:
             if response["docs"][0]["episode"]!="":
-                episodeOfAnime = str(response["docs"][0]["episode"])
+                episodeOfAnime = ", episodio " + str(response["docs"][0]["episode"])
             else:
-                episodeOfAnime = "cuyo número no recuerdo"
+                episodeOfAnime = ""
         else:
-            episodeOfAnime = "cuyo número no recuerdo"
+            episodeOfAnime = ""
 
         # Get Anime season (year)
         if "season" in response["docs"][0]:
@@ -201,6 +201,12 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 seasonOfAnime = "en el que se produjo"
         else:
             seasonOfAnime = "en el que se produjo"
+        
+        # Get Minute of frame
+        if "at" in response["docs"][0] and response["docs"][0]["at"]!=None:
+            minuteOfAnime = " minuto " + str(datetime.timedelta(seconds=int(response["docs"][0]["at"])))
+        else:
+            minuteOfAnime = ""
 
         # Get simmilarity
         if "similarity" in response["docs"][0]:
@@ -211,7 +217,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
         else:
             return
 
-        msg_to_send = "Estoy {}% seguro de que la imágen es de un {} del año {} llamado **\"{}\"** , episodio {}.".format(simmilarityOfAnime,typeOfAnime,seasonOfAnime,nameOfAnime,episodeOfAnime)
+        msg_to_send = "Estoy {}% seguro de que la imágen es de un {} del año {} llamado **\"{}\"** {}{}.".format(simmilarityOfAnime,typeOfAnime,seasonOfAnime,nameOfAnime,episodeOfAnime,minuteOfAnime)
 
         await msg.channel.send(content = msg_to_send,file = fileToSend, reference = msg, mention_author=True)
 
@@ -435,12 +441,14 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
     # Si es negativa, busca con TraceMOE y pregunta de nuevo todo esto (eliminando la fallida)
     # Si es también negativa, ábrelo a los usuarios
     @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload):
+    async def on_reaction_add(self, reaction, user):
         list_of_messages = list(zip(*self.messages_to_react))
         if len(list_of_messages) == 0:
             return
         # Message Status (0=No action -1=video,no action 1=action,no video 2=delete)
         self.status_messages_to_react
+
+
 
         # URL of image
         list_of_image_URL = list_of_messages[2]
@@ -478,17 +486,17 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                                                  ["text"].index('|')-1:]
             return discord.Embed.from_dict(dictionary)
 
-        if str(payload.message_id) in list_of_message_IDs and payload.event_type == "REACTION_ADD":
+        if str(reaction.message.id) in list_of_message_IDs:
             position_to_change = list_of_message_IDs.index(
-                str(payload.message_id))
+                str(reaction.message.id))
             actual_status = self.status_messages_to_react[position_to_change]
-            if payload.user_id == 702233706240278579:  # eldoBOT
+            if user.id == 702233706240278579:  # eldoBOT
                 return
-            guild_of_reaction = self.bot.get_guild(payload.guild_id)
-            author_of_reaction = await guild_of_reaction.fetch_member(payload.user_id)
+            guild_of_reaction = self.bot.get_guild(reaction.message.guild.id)
+            author_of_reaction = await guild_of_reaction.fetch_member(user.id)
             can_react = True  # Now everyone can react
             for rol in author_of_reaction.roles:  # Eww, Hardcoded :P (>=lvl 3)
-                if(rol.id == 630560047872737320 or rol.name == "Godness" or payload.user_id == 597235650361688064):
+                if(rol.id == 630560047872737320 or rol.name == "Godness" or user.id == 597235650361688064):
                     can_react = True
             if not can_react:
                 the_reactions = list_of_messages[position_to_change].reactions
@@ -500,7 +508,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 member_name = author_of_reaction.name
             else:
                 member_name = author_of_reaction.nick
-            if payload.emoji.name == "✅" and actual_status <= 0:
+            if reaction.emoji.name == "✅" and actual_status <= 0:
                 # Get User ID
                 mySQL_query = "SELECT ID FROM "+self.DB_NAME + \
                     ".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
@@ -526,7 +534,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                     embed_message.to_dict(), True, member_name)
                 await list_of_messages[position_to_change].edit(embed=embed_message)
 
-            elif payload.emoji.name == "❌" and actual_status <= 0:
+            elif reaction.emoji.name == "❌" and actual_status <= 0:
                 # Get User ID
                 mySQL_query = "SELECT ID FROM "+self.DB_NAME + \
                     ".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
@@ -552,10 +560,9 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                     embed_message.to_dict(), False, member_name, list_of_DB_ids[position_to_change])
                 await list_of_messages[position_to_change].edit(embed=embed_message)
 
-            elif payload.emoji.name == "🎦" and actual_status >= 0:
-                channel_of_reaction = guild_of_reaction.get_channel(
-                    payload.channel_id)
-                message_of_reaction = await channel_of_reaction.fetch_message(payload.message_id)
+            elif reaction.emoji.name == "🎦" and actual_status >= 0:
+                channel_of_reaction = reaction.message.channel
+                message_of_reaction = await channel_of_reaction.fetch_message(reaction.message.id)
                 embedded_msg_color = message_of_reaction.embeds[0].color.value
 
                 url_to_send = list_of_image_URL[position_to_change]
@@ -570,12 +577,11 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 else:
                     self.status_messages_to_react[position_to_change] = -1
 
-            elif payload.emoji.name == "✖":
-                channel_of_reaction = guild_of_reaction.get_channel(
-                    payload.channel_id)
-                message_of_reaction = await channel_of_reaction.fetch_message(payload.message_id)
+            elif reaction.emoji.name == "✖":
+                channel_of_reaction = reaction.message.channel
+                message_of_reaction = reaction.message
 
-            elif payload.emoji.name == "🔎":
+            elif reaction.emoji.name == "🔎":
                 mySQL_query = "SELECT URL FROM "+self.DB_NAME + \
                     ".NAME_IMAGE WHERE ID=" + \
                     str(list_of_DB_ids[position_to_change])+";"
