@@ -508,7 +508,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 member_name = author_of_reaction.name
             else:
                 member_name = author_of_reaction.nick
-            if reaction.emoji.name == "✅" and actual_status <= 0:
+            if reaction.emoji == "✅" and actual_status <= 0:
                 # Get User ID
                 mySQL_query = "SELECT ID FROM "+self.DB_NAME + \
                     ".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
@@ -534,7 +534,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                     embed_message.to_dict(), True, member_name)
                 await list_of_messages[position_to_change].edit(embed=embed_message)
 
-            elif reaction.emoji.name == "❌" and actual_status <= 0:
+            elif reaction.emoji == "❌" and actual_status <= 0:
                 # Get User ID
                 mySQL_query = "SELECT ID FROM "+self.DB_NAME + \
                     ".USER WHERE USER_ID="+str(author_of_reaction.id)+";"
@@ -560,7 +560,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                     embed_message.to_dict(), False, member_name, list_of_DB_ids[position_to_change])
                 await list_of_messages[position_to_change].edit(embed=embed_message)
 
-            elif reaction.emoji.name == "🎦" and actual_status >= 0:
+            elif reaction.emoji == "🎦" and actual_status >= 0:
                 channel_of_reaction = reaction.message.channel
                 message_of_reaction = await channel_of_reaction.fetch_message(reaction.message.id)
                 embedded_msg_color = message_of_reaction.embeds[0].color.value
@@ -577,11 +577,11 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 else:
                     self.status_messages_to_react[position_to_change] = -1
 
-            elif reaction.emoji.name == "✖":
+            elif reaction.emoji == "✖":
                 channel_of_reaction = reaction.message.channel
                 message_of_reaction = reaction.message
 
-            elif reaction.emoji.name == "🔎":
+            elif reaction.emoji == "🔎":
                 mySQL_query = "SELECT URL FROM "+self.DB_NAME + \
                     ".NAME_IMAGE WHERE ID=" + \
                     str(list_of_DB_ids[position_to_change])+";"
@@ -837,7 +837,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                 emb_preview = results["results"][0]["header"]["thumbnail"]
 
             emb_similarity = float(similarity_of_result)
-            if(float(similarity_of_result)>58):
+            if(float(similarity_of_result)>50):
                 emb_index_saucenao = results["results"][0]["header"]["index_name"]
                 emb_index_saucenao = emb_index_saucenao[emb_index_saucenao.find(":")+1:emb_index_saucenao.find(" - ")]
                 if "pixiv_id" in result_data:
@@ -950,7 +950,7 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
                     if emb_similarity > 89:
                         emb_color = 1425173  # A nice green
                         emb_embbed_tittle = "Nombre encontrado!"
-                    elif emb_similarity > 73:
+                    elif emb_similarity > 65:
                         emb_color = 16776960 # An insecure yellow
                         emb_embbed_tittle = "Nombre quizás encontrado!"
                     else:
