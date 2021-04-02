@@ -11,6 +11,8 @@ import mysql.connector
 import imagehash
 from unidecode import unidecode
 import urllib.parse
+import urllib
+import subprocess
 import json
 from datetime import datetime
 import re
@@ -100,6 +102,21 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
 
         #self.sauceNAO_TOKEN = keys["sauceNAO_TOKEN"]
         #self.DB_NAME = keys["Database"]["database"]
+
+    # Uses a builded version of https://github.com/neocortical/noborders
+    #   to crop out black bars and other things
+    def crop_image(self,image_link,is_file=False):
+        if is_file:
+            if subprocess.call(['./dependencies/noborders',image_link,'./temp/cropped.jpg']) == 0:
+                return "./temp/cropped.jpg"
+            else:
+                return False
+        else:
+            urllib.request.urlretrieve(image_link, "./temp/temp_crop.jpg")
+            if subprocess.call(['./dependencies/noborders','./temp/temp_crop.jpg','./temp/cropped.jpg']) == 0:
+                return "./temp/cropped.jpg"
+            else:
+                return False
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -707,6 +724,11 @@ class SearchCog(commands.Cog, name="Busqueda", description="Comandos de búsqued
             image_to_search = requests.get(image_to_search_URL)
             image_to_search = Image.open(BytesIO(image_to_search.content))
 
+        # Crop out black bars
+        image_to_search.save("./temp/to_crop.jpg")
+        cropped = self.crop_image("./temp/to_crop.jpg", is_file=True)
+        if cropped != False:
+            image_to_search = Image.open("./temp/cropped.jpg")
         image_to_search = image_to_search.convert('RGB')
         image_to_search.thumbnail((250,250), resample=Image.ANTIALIAS)
         imageData = BytesIO()
