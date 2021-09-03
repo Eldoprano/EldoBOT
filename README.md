@@ -2,6 +2,8 @@
 
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Eldoprano_EldoBOT&metric=alert_status)](https://sonarcloud.io/dashboard?id=Eldoprano_EldoBOT)
 
+> This project will probably slowly die, because of the `discord.py` library not getting further updates. The plan is to slowly migrate to another language, like Java or JS, but this will take time :P
+
 EldoBOT is a Discord bot that's still in active development... 
 ## Actual Features!
   - Anime name search with SauceNAO, TraceMOE and self hash matching
